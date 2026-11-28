@@ -15,7 +15,7 @@ type HSpec = readonly [string, (string | 0)?, ...HChild[]];
 type BootPayload = FramePayload & { locale?: string; qualityApplied?: string; appVersion?: string; relayVersion?: string };
 type CfgState = { lang: string; defaultQuality: string; defaultConnectMode: string; bgPollIntervalSec: number; idlePauseSec: number; wheelCoalesceMs?: number; newTabUrl?: string; theme?: string; lastHostTheme?: string };
 
-const K_TID = "targetId", K_AT = "activeTargetId", K_TH = "tabsHash", K_CM = "connectionMode", K_PF = "portFile", K_EC = "errorCode", K_PE = "pauseEpoch", K_SPI = "screencastPausedIdle", K_PS = "popupSwitched", K_RC = "recovered", K_IDU = "imageDataUrl", K_IB = "imageBytes", K_SM = "serverMs", K_QA = "qualityApplied", K_DQ = "defaultQuality", K_DCM = "defaultConnectMode", K_BG = "bgPollIntervalSec", K_IP = "idlePauseSec", K_LHT = "lastHostTheme", K_VW = "viewportWidth", K_VH = "viewportHeight", K_SG = "settingsGen", K_SP = "settingsPath", K_SE = "settingsError", K_CN = "connected", K_PA = "paused", K_SB = "standby", K_ERR = "error", K_DLG = "dialog", K_EW = "ewmaRttMs", K_GEQ = "getEffectiveQuality", K_DS = "dataset", K_TY = "type", K_PE2 = "pressEnter", K_MOD = "modifiers", K_PASTE = "Paste", K_VAL = "value", K_CNM = "className";
+const K_TID = "targetId", K_AT = "activeTargetId", K_TH = "tabsHash", K_CM = "connectionMode", K_PF = "portFile", K_EC = "errorCode", K_PE = "pauseEpoch", K_SPI = "screencastPausedIdle", K_PS = "popupSwitched", K_RC = "recovered", K_IDU = "imageDataUrl", K_IB = "imageBytes", K_SM = "serverMs", K_QA = "qualityApplied", K_DQ = "defaultQuality", K_DCM = "defaultConnectMode", K_BG = "bgPollIntervalSec", K_IP = "idlePauseSec", K_LHT = "lastHostTheme", K_VW = "viewportWidth", K_VH = "viewportHeight", K_SG = "settingsGen", K_SP = "settingsPath", K_SE = "settingsError", K_CN = "connected", K_PA = "paused", K_SB = "standby", K_ERR = "error", K_DLG = "dialog", K_EW = "ewmaRttMs", K_DS = "dataset", K_TY = "type", K_PE2 = "pressEnter", K_MOD = "modifiers", K_PASTE = "Paste", K_VAL = "value", K_CNM = "className";
 const K_SC = "structuredContent", K_TB = "tabs", K_AC = "action", K_PR = "personal", K_AU = "auto", K_ES = "Escape", K_EN = "Enter", K_KD = "keydown", K_MM = "mousemove", K_TI = "title", K_HD = "hidden", K_TC = "textContent", K_L = "length", K_SP0 = "split", K_STP = "setThemePreference", K_ST0 = "settings", K_CS = "chrome_stream_", K_FC = "focus", K_W = "width", K_H = "height", K_BT = "button", K_TR = "target", K_IC = "isComposing", K_MSG = "message", K_INC = "includes", K_LT = "light", K_DK = "dark", K_SYS = "system", K_RS = "resume", K_PRM = "prompt", K_AL = "alert";
 const doc = document, M = Math, N = navigator, LS_LG = `${K_CS}lang`;
 const b0: BootPayload = (globalThis as { __CHROME_STREAM_BOOT__?: BootPayload }).__CHROME_STREAM_BOOT__ || {};
@@ -115,7 +115,7 @@ const pTh = (v: unknown): ThemePreference => (v === K_LT || v === K_DK ? v : K_S
 const pHt = (v: unknown): "light" | "dark" => (v === K_LT ? K_LT : K_DK);
 let cfg: CfgState = { lang: K_AU, [K_DQ]: K_AU, [K_DCM]: K_AU, [K_BG]: 0, [K_IP]: 12, theme: K_SYS, [K_LHT]: K_DK, ...(boot[K_ST0] as Partial<CfgState> | undefined) };
 let cfgPath = boot[K_SP] || "settings.json", cfgGen = +(boot[K_SG] ?? 0) || 0, cfgErr = boot[K_SE] || "", hostCtx: HostContext | null = null;
-let thP: ThemePreference = pTh(cfg.theme), lht: "light" | "dark" = pHt(cfg[K_LHT]), thLk = 0;
+let thP: ThemePreference = pTh(cfg.theme), lht: "light" | "dark" = pHt(cfg[K_LHT]), oht = lht, thIn = 0, thLk = 0;
 
 const pickLg = (c: HostContext | null = hostCtx): PanelLang =>
   resolvePanelLang({ saved: cfg.lang && cfg.lang !== K_AU ? cfg.lang : ls(LS_LG), hostLocale: (c?.locale || c?.language || "") as string, navLang: N?.language || "", bootLocale: boot.locale || b0.locale || "" });
@@ -133,8 +133,9 @@ net.setMode(qMode); syncNetCfg();
 
 const vp = (): [number, number] => [+(S.pg[K_VW] ?? 0) || 1280, +(S.pg[K_VH] ?? 0) || 800];
 const qName = (q: string): string => T[`q_${QK[K_INC](q) ? q : "low"}`] || q;
-const qLbl = (): string => { const e = qName(qApp || net[K_GEQ]()); return qMode === K_AU ? T.ap + e : e; };
-const qArgs = (): { qualityPreset: string; rttMs: number } => ({ qualityPreset: net[K_GEQ](), rttMs: net[K_EW] || 0 });
+const qEff = (): QualityMode => net.getEffectiveQuality();
+const qLbl = (): string => { const e = qName(qApp || qEff()); return qMode === K_AU ? T.ap + e : e; };
+const qArgs = (): { qualityPreset: string; rttMs: number } => ({ qualityPreset: qEff(), rttMs: net[K_EW] || 0 });
 const canCall = (): boolean => !!ready && app.hasServerTools();
 const eRaw = (e: unknown): string => (typeof e === "string" ? e : (e as { message?: string } | null)?.[K_MSG] || String(e || ""));
 const eCode = (d: FramePayload | null | undefined, fb?: string): string | null => (d?.[K_EC] ? `e_${d[K_EC]}` : fb || null);
@@ -267,6 +268,7 @@ const sUrl = (u: string): void => { if (doc.activeElement !== D.ui) D.ui[K_VAL] 
 const setMeta = (m: TabInfo | undefined): void => { if (m) { S.pg = { ...S.pg, [K_TI]: m[K_TI] || "", url: m.url || "" }; sUrl(m.url || ""); } };
 const rstF = (th?: number): void => { S.seq = 0; S.fh = ""; S.cr = false; if (th) S.th = ""; };
 
+const clr2 = (): void => { clrTm(1); clrTm(0); };
 const syncPh = (): void => {
   if (S.nt) { setSw(0); S.nv = false; hideCvs(); tx(D.pm, hadTabs ? T.wc : T.nt0); tx(D.ps, hadTabs ? T.wcb : T.nt0b); hd(D.ps, 0); hd(D.pa2, 0); return; }
   hd(D.ps, 1); hd(D.pa2, 1);
@@ -326,12 +328,13 @@ const sView = (): void => { const off = !S.on || isSb; hd(D.vo, !off); hd(D.vn, 
 
 const renderGuide = (): void => {
   tx(gNodes[0], T.s1);
-  const [a, b] = T.s2[K_SP0]("$0"); gNodes[1].replaceChildren(doc.createTextNode(a), h("code", "t=chrome://inspect/#remote-debugging"), doc.createTextNode(b || ""));
+  const tn = (s: string): Text => doc.createTextNode(s), [a, b] = T.s2[K_SP0]("$0");
+  gNodes[1].replaceChildren(tn(a), h("code", "t=chrome://inspect/#remote-debugging"), tn(b || ""));
   tx(gNodes[2], T.s3.replace(/\*/g, ""));
 };
 const syncCfgUi = (): void => {
   for (const [id, , k] of CFGS) D[id][K_VAL] = String(cfg[k] ?? "");
-  tog(thBtns, "th", thP);
+  tog(thBtns, "th", thP, "p");
   tx(D.sp2, `${T.sf}: ${cfgPath}`); D.sp2[K_TI] = cfgPath; hd(D.se, !cfgErr); tx(D.se, cfgErr ? T.sfb : "");
 };
 const putCfg = (p: Partial<CfgState>): void => { cfg = { ...cfg, ...p }; syncNetCfg(); saveSwr(); };
@@ -442,8 +445,8 @@ const mount = (): void => {
     [".o#sw!", "R=dialog;.a=st",
       [".pr", 0, ["s.pl", ".i=st"], ["s#ss"]],
       [".mn.erc#se!"],
-      [".pr", 0, ["s", ".i=th"], h(".l", "R=radiogroup;.a=th", ...THS.map((v, i) => {
-        const b = h("b", `R=radio;.th=${v};.i=th${i};@c=${thP === v}`); ck(b, () => { const g = ++thLk; thP = v; app[K_STP]?.(v); syncCfgUi(); void saveCfg({ theme: v }).then(() => { if (thLk === g) thLk = 0; }); });
+      [".pr", 0, ["s", ".i=th"], h(".l", "R=group;.a=th", ...THS.map((v, i) => {
+        const b = h("b", `.th=${v};.i=th${i};@p=${thP === v}`); ck(b, () => { const g = ++thLk; thP = v; app[K_STP]?.(v); syncCfgUi(); void saveCfg({ theme: v }).then(() => { if (thLk === g) thLk = 0; }); });
         thBtns.push(b); return b;
       }))],
       ...CFGS.map(([id, lk, , , ops]): HSpec => [".pr", 0, ["s", `.i=${lk}`], [`l.sel#${id}`, `.a=${lk}`, ...ops[K_SP0]("|").map((o): HSpec => { const [v, tk] = o[K_SP0](":"); return ["option", `value=${v};${tk[0] === "=" ? `t=${tk.slice(1)}` : `.i=${tk}`}`]; })]]),
@@ -461,7 +464,7 @@ const mount = (): void => {
   const doDisc = async (mode: "standby" | "revoke" = K_SB): Promise<void> => {
     if (isDisc || !S.on || !canCall()) return;
     const rev = mode === "revoke";
-    clsP(); isDisc = rev ? 2 : 1; S.ep++; dropIn(); clrTm(1); clrTm(0);
+    clsP(); isDisc = rev ? 2 : 1; S.ep++; dropIn(); clr2();
     isSb ? uOff() : syncPauseUi(); toast(rev ? T.tdc : T.tsbi);
     try {
       const d = await rpcSc("disconnect", { mode }), okU = d && d.ok !== false && !d.unconfirmed;
@@ -477,12 +480,12 @@ const mount = (): void => {
   };
   const sendPa = async (want: boolean, sb?: boolean): Promise<void> => {
     if (!S.on || isDisc || !canCall() || (sb ? isCn || isPa : isPa)) return;
-    const clrSb = () => { if (sb) { isCn = 0; isSb = false; } };
+    const clrSb = () => sb && ((isCn = 0), (isSb = false), 1);
     const fail = (d?: FramePayload | null, e?: unknown) => { sb ? (isCn = 0) : (isPa = 0); e ? setBErr(e, 1) : setPErr(d, "ep", 1); finPa(!!sb); };
     sb ? ((isCn = K_RS), setErr(), clrTm(0), uOff()) : ((isPa = 1), syncPauseUi(), want && clrTm(1));
     try {
       const d = await sendIn([{ [K_AC]: want ? "pause" : K_RS }]);
-      if (chkConn(d)) { if (sb) { clrSb(); schedOffP(); } return; }
+      if (chkConn(d)) { clrSb() && schedOffP(); return; }
       if (!d || d.ok === false) return fail(d);
       bumpPe(d); pollSeq++;
       sb ? clrSb() : (isPa = 0);
@@ -495,13 +498,12 @@ const mount = (): void => {
   const ansDlg = (accept: boolean): void => { const g = S.dlg; if (g) { S.dlg = null; syncBnr(); evIn(K_DLG, { accept, promptText: g[K_TY] === K_PRM ? D.di[K_VAL] : undefined }); askUrg(1); focusSt(); } };
   const tDet = (): void => { errDet ^= 1; syncBnr(); };
   const tSet = (e: Event): void => { sp(e); setSet(!setOn); };
-  const discFn = (m: "standby" | "revoke") => () => void doDisc(m);
   const resOr = (fn: () => void) => () => void (isSb ? sendPa(false, true) : fn());
   for (const [ks, fn] of [
     ["ob", resOr(() => conn(K_PR))],
     ["or", () => (ready ? canCall() && resOr(() => conn(lastMode, 1))() : void initBridge())],
     ["ol", () => void conn("launch", 1)],
-    ["nt n2", openNT], ["n3 dc", discFn(K_SB)], ["n4 rv orv", discFn("revoke")],
+    ["nt n2", openNT], ["n3 dc", () => void doDisc(K_SB)], ["n4 rv orv", () => void doDisc("revoke")],
     ["er", () => (ready ? (setErr(), askUrg(1)) : void initBridge())], ["dx", () => setErr()], ["eb ob2", tDet],
     ["sn", () => { S.fh = ""; S.cr = S.id = false; act = nowMs(); setPop(false); toast(T.trf); void poll(1); }],
     ["bp", () => void sendPa(!S.pa)], ["pb", () => S.on && (S.pa ? void sendPa(false) : ((S.id = false), (act = nowMs()), syncPauseUi(), void poll(1)))],
@@ -510,22 +512,24 @@ const mount = (): void => {
     ["sp2", () => { N.clipboard?.writeText?.(cfgPath).catch(() => {}); toast(T.tcp); }],
   ] as const) for (const k of ks[K_SP0](" ")) ck(D[k], fn);
   for (const [id, , k, num0] of CFGS) on(D[id], "change", () => void saveCfg({ [k]: num0 ? num(D[id][K_VAL]) : D[id][K_VAL] }));
+  const markNav = (): void => { S.nv = true; S.id = false; hd(D.lb, 0); };
   for (const s of "back,← ,bk|forward,→ ,fw|reload,↻ ,rl"[K_SP0]("|")) {
     const [a, p, k] = s[K_SP0](",");
-    ck(D[k], () => { if (!S.pa) { S.nv = true; S.id = false; hd(D.lb, 0); toast(p + T[k]); evIn(a); } });
+    ck(D[k], () => { if (!S.pa) { markNav(); toast(p + T[k]); evIn(a); } });
   }
   const onK = (n: EventTarget, ent: (() => void) | 0, esc: (() => void) | 0): void => on(n, K_KD, (e: KeyboardEvent) => { ent && e.key === K_EN && !e[K_IC] ? (pd(e), ent()) : esc && e.key === K_ES && (pd(e), esc()); });
   on(D.dt, "toggle", () => (D.dt[K_DS].u = "1"));
   onK(D.di, () => ansDlg(true), () => ansDlg(S.dlg?.[K_TY] === K_AL));
   on(D.ui, K_FC, () => D.ui.select());
   onK(D.ui, 0, () => { D.ui[K_VAL] = S.pg.url || ""; focusSt(); });
-  on(D.uf, "submit", (e: Event) => { pd(e); const u = !S.pa && D.ui[K_VAL].trim(); if (u) { S.nv = true; S.id = false; S.pg = { ...S.pg, url: u }; hd(D.lb, 0); evIn("navigate", { url: u }); focusSt(); } });
+  on(D.uf, "submit", (e: Event) => { pd(e); const u = !S.pa && D.ui[K_VAL].trim(); if (u) { markNav(); S.pg = { ...S.pg, url: u }; evIn("navigate", { url: u }); focusSt(); } });
   onK(D.ti, () => sendTx(true), () => { setIme(false); focusSt(); });
+  const tyEv = (t: string, imm = 0): void => evIn(K_TY, { text: t, [K_PE2]: false }, imm);
   for (const ch of qAll(D.im, "[data-k],[data-sc]")) ck(ch, async () => {
     if (S.pa) return;
     const { k, sc } = ch[K_DS], cb = N.clipboard;
     if (sc) { const dm = vp(); evIn("scroll", { x: rnd(dm[0] / 2), y: rnd(dm[1] / 2), deltaY: +sc || 360 }); return; }
-    if (k === K_PASTE && cb?.readText) try { const txt = await cb.readText(); if (txt) { toast(T.tps); evIn(K_TY, { text: txt, [K_PE2]: false }); return; } } catch {}
+    if (k === K_PASTE && cb?.readText) try { const txt = await cb.readText(); if (txt) { toast(T.tps); tyEv(txt); return; } } catch {}
     toast(k === "Copy" ? T.tcp : k === K_PASTE ? T.tps : `✓ ${ch[K_TC]}`); if (k) kyIn(k);
   });
 
@@ -557,16 +561,18 @@ const mount = (): void => {
     if (p) { mv = { p: { ...p, [K_BT]: mM ? mN : "none", buttons: mM, [K_MOD]: modsOf(e) || undefined }, t: S.aid, e: S.tep }; if (!mvT) mvT = sTm(flMv, mM ? 32 : net[K_EW] > 350 ? 150 : 75); }
   };
   onV(K_MM, onMv);
-  on(window, K_MM, (e: MouseEvent) => mM && e[K_TR] !== D.vc && onMv(e));
-  on(window, "mouseup", (e: MouseEvent) => mM && relDrag(e));
-  on(window, "blur", () => mM && relDrag(null));
+  for (const [ev, fn] of [
+    [K_MM, (e: MouseEvent) => mM && e[K_TR] !== D.vc && onMv(e)],
+    ["mouseup", (e: MouseEvent) => mM && relDrag(e)],
+    ["blur", () => mM && relDrag(null)],
+  ] as const) on(window, ev, fn);
   onV("auxclick", (e: MouseEvent) => e[K_BT] === 1 && pd(e));
   onV("contextmenu", (e: MouseEvent) => { pd(e); const p = !S.pa && nowMs() - lRD >= 450 && ptOf(e); if (p) ptrEv("click", e, p, "right", { clickCount: 1 }); });
 
   let wx = 0, wy = 0, wp: { x: number; y: number } | null = null, wT: string | null = null, wE = 0, wt: Tm = 0;
   onV("wheel", (e: WheelEvent) => {
     pd(e); if (S.pa) return;
-    const sc = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? vp()[1] * 0.85 : 1;
+    const d = e.deltaMode, sc = d === 1 ? 40 : d === 2 ? vp()[1] * 0.85 : 1;
     if (!wt || wT !== S.aid || wE !== S.tep) { cTm(wt); wt = 0; wx = wy = 0; wp = null; wT = S.aid; wE = S.tep; }
     wx += e.deltaX * sc; wy += e.deltaY * sc; wp = ptOf(e) || wp;
     if (!wt) wt = sTm(() => {
@@ -580,11 +586,12 @@ const mount = (): void => {
   const takeSi = (): string => { const v = D.si[K_VAL]; D.si[K_VAL] = ""; return v; };
   dropTimers = () => { cTm(wt); cTm(mvT); cTm(pArm); wt = wx = wy = mvT = pArm = mM = 0; mv = wp = mTid = null; };
   on(D.st, K_FC, () => doc.activeElement === D.st && focusSt());
-  on(D.si, "compositionstart", () => (comp = 1));
-  const tyEv = (t: string, imm = 0): void => evIn(K_TY, { text: t, [K_PE2]: false }, imm);
-  on(D.si, "compositionend", (e: CompositionEvent) => { comp = 0; const v = e.data || takeSi(); takeSi(); if (!S.pa && v) tyEv(v, 1); });
-  on(D.si, "beforeinput", (e: InputEvent) => !comp && !e[K_IC] && !S.pa && (e.inputType === "deleteContentBackward" ? (pd(e), kyIn("Backspace", 0, 0)) : e.inputType === "insertLineBreak" && (pd(e), kyIn(K_EN))));
-  on(D.si, "input", () => { if (!comp && !S.pa && D.si[K_VAL]) tyEv(takeSi()); });
+  for (const [ev, fn] of [
+    ["compositionstart", () => (comp = 1)],
+    ["compositionend", (e: CompositionEvent) => { comp = 0; const v = e.data || takeSi(); takeSi(); if (!S.pa && v) tyEv(v, 1); }],
+    ["beforeinput", (e: InputEvent) => !comp && !e[K_IC] && !S.pa && (e.inputType === "deleteContentBackward" ? (pd(e), kyIn("Backspace", 0, 0)) : e.inputType === "insertLineBreak" && (pd(e), kyIn(K_EN)))],
+    ["input", () => { if (!comp && !S.pa && D.si[K_VAL]) tyEv(takeSi()); }],
+  ] as const) on(D.si, ev, fn);
   on(D.st, K_KD, (e: KeyboardEvent) => {
     const k = e.key, tr = e[K_TR], m = e.metaKey, c = e.ctrlKey, al = e.altKey;
     if (S.pa || (tr !== D.st && tr !== D.si) || comp || e[K_IC] || k === "Process" || e.keyCode === 229) return;
@@ -610,7 +617,7 @@ const mount = (): void => {
 
 const setQ = (v: string, silent?: number): void => {
   if (!QK[K_INC](v)) return;
-  qMode = v as QualityMode; net.setMode(v); qApp = net[K_GEQ](); S.fh = ""; S.cr = S.id = false; act = nowMs();
+  qMode = v as QualityMode; net.setMode(v); qApp = qEff(); S.fh = ""; S.cr = S.id = false; act = nowMs();
   tog(qBtns, "q", v);
   uSt(); if (!silent) toast(`✓ ${qLbl()}`); if (S.on && !isSb) askUrg(1);
 };
@@ -676,7 +683,7 @@ const onPoll = (d: FramePayload | undefined, totalMs: number, reqEpoch = S.ep): 
   const sw = d[K_PS] || d[K_RC];
   if (sw || S.aid !== oA || S.tep !== oE) dropTimers();
   if (totalMs > 0 && !d[K_SPI]) {
-    if (net.recordSample({ totalMs, [K_SM]: d[K_SM] || 0, [K_IB]: d.changed ? d[K_IB] || 0 : 0 }).tierChanged) qApp = net[K_GEQ]();
+    if (net.recordSample({ totalMs, [K_SM]: d[K_SM] || 0, [K_IB]: d.changed ? d[K_IB] || 0 : 0 }).tierChanged) qApp = qEff();
   }
   if (d[K_QA]) qApp = d[K_QA];
   sView();
@@ -780,15 +787,15 @@ const forceNow = (): void => {
   lastForceAt = t; pErr = offErr = 0;
   S.on && !isSb ? !S.pa && ((act = t), S.id && ((S.id = false), syncPauseUi()), clrTm(1), void poll(1)) : !isCn && !isDisc && (clrTm(0), oB ? (offUrg = 1) : void probeOff());
 };
-const onHide = (): void => { if (ready) { clrTm(1); clrTm(0); urg = 0; offUrg = 0; } };
+const onHide = (): void => { if (ready) { clr2(); urg = 0; offUrg = 0; } };
 
 ck(doc, (e: Event) => { const el = e[K_TR] as Element | null; if (popOn && !el?.closest?.("#pp,#bq")) setPop(false); if (setOn && !el?.closest?.("#sw,#bg,#bg0")) setSet(false); });
 on(doc, K_KD, (e: KeyboardEvent) => {
   if ((e.metaKey || e.ctrlKey) && low(e.key) === "l" && S.on && !isSb) { pd(e); D.ui[K_FC](); D.ui.select(); }
-  else if (e.key === K_ES && (popOn || setOn)) { pd(e); popOn ? (setPop(false), D.bq[K_FC]()) : (setSet(false), (S.on && !isSb ? D.bg : D.bg0)[K_FC]()); }
+  else if (e.key === K_ES && (popOn || setOn)) { pd(e); (popOn ? (setPop(false), D.bq) : (setSet(false), S.on && !isSb ? D.bg : D.bg0))[K_FC](); }
 });
 const syncHostCtx = (ctx: HostContext | null | undefined, fullCtx?: HostContext): void => { hostCtx = fullCtx || ctx || null; chkLg(hostCtx); };
-const persistHt = (ht: "light" | "dark"): void => { if (canCall() && ht !== lht) void saveCfg({ [K_LHT]: ht }, 1).then((ok) => { if (ok) lht = ht; }); };
+const persistHt = (ht: "light" | "dark"): void => { oht = ht; if (canCall() && !thIn && ht !== lht) { thIn = 1; void saveCfg({ [K_LHT]: ht }, 1).then((ok) => { thIn = 0; if (ok && (lht = ht) !== oht) persistHt(oht); }); } };
 app.onhostthemechanged = persistHt;
 const bootPoll = (): void => { started = 1; lastForceAt = nowMs(); isSb ? schedOffP() : S.on && !S.pa && (freshBoot ? liveSched() : void poll(0)); };
 const onResult = (r: { [K_SC]?: unknown }): void => {
@@ -810,7 +817,7 @@ const onResult = (r: { [K_SC]?: unknown }): void => {
 };
 
 app.ontoolresult = onResult; app.onhostcontextchanged = syncHostCtx;
-app.onteardown = () => { clrTm(1); clrTm(0); stopReveal?.(); stopReveal = null; return {}; };
+app.onteardown = () => { clr2(); stopReveal?.(); stopReveal = null; return {}; };
 
 mount(); sView();
 if (S.on) {
