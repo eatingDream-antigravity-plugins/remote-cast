@@ -2,7 +2,7 @@ import { App, applyHostContext } from "./kit/bridge.ts";
 import type { HostContext } from "./kit/bridge.ts";
 import {
   AdaptiveBandwidthController, applyFramePayloadState, applyOptimisticTabClose, coalesceInputEvents,
-  isNoTabsPayload, isSafeImageUrl, isTargetErrorText, mapBridgeErrorKey, REP, resolvePanelLang,
+  isBusyErrorText, isNoTabsPayload, isSafeImageUrl, isTargetErrorText, mapBridgeErrorKey, REP, resolvePanelLang,
   resolveStageAspect, rttBand, setupRevealObservers,
 } from "./net-policy.ts";
 import type { FramePayload, InputEventPayload, PanelLang, PanelState, PortFileInfo, QualityMode, TabInfo } from "./net-policy.ts";
@@ -125,7 +125,39 @@ const qArgs = (): { qualityPreset: string; rttMs: number } => ({ qualityPreset: 
 const canCall = (): boolean => !!ready && app.hasServerTools();
 const eRaw = (e: unknown): string => (typeof e === "string" ? e : (e as { message?: string } | null)?.message || String(e || ""));
 const eCode = (d: FramePayload | null | undefined, fb?: string): string | null => (d?.errorCode ? `e_${d.errorCode}` : fb || null);
-const rpcSc = (name: string, a: Record<string, unknown>): Promise<FramePayload | undefined> => app.callServerTool({ name: "chrome_stream_" + name, arguments: a }).then((r) => r?.structuredContent as FramePayload | undefined);
+const rpcSc = (() => {
+  type J = { n: string; a: Record<string, unknown>; s: (v: FramePayload | undefined) => void; j: (e: unknown) => void };
+  let busy = 0, bg: J | null = null;
+  const hi: J[] = [];
+  const run = async (n: string, a: Record<string, unknown>): Promise<FramePayload | undefined> => {
+    const g = (n === "frame" || n === "stage") && net.ewmaRttMs > 120 && +(a.waitMs ?? 0) > 0 ? { ...a, waitMs: 0 } : a;
+    const r = (await app.callServerTool({ name: "chrome_stream_" + n, arguments: g })) as { structuredContent?: FramePayload; isError?: boolean; content?: Array<{ text?: string }> } | undefined;
+    if (!r?.structuredContent && r?.isError) { const m = r.content?.find((c) => c?.text)?.text; if (m) throw new Error(m); }
+    return r?.structuredContent;
+  };
+  const pump = async (): Promise<void> => {
+    if (busy) return;
+    busy = 1;
+    try {
+      while (hi.length || bg) {
+        const q = hi.shift() || ((x) => ((bg = null), x))(bg!);
+        try {
+          let v: FramePayload | undefined;
+          for (let rt = 0; ; ) {
+            try {
+              v = await run(q.n, q.a);
+              if (rt || v?.errorCode !== "relay_busy") break;
+            } catch (e) { if (rt || !isBusyErrorText(eRaw(e))) throw e; }
+            rt = 1; await new Promise<void>((r) => sTm(r, 160));
+          }
+          q.s(v);
+        } catch (e) { q.j(e); }
+      }
+    } finally { busy = 0; }
+  };
+  return (n: string, a: Record<string, unknown>): Promise<FramePayload | undefined> =>
+    new Promise((s, j) => { const q: J = { n, a, s, j }; n === "frame" || n === "stage" ? (bg?.s(undefined), (bg = q)) : hi.push(q); void pump(); });
+})();
 const sendIn = (events: InputEventPayload[], targetId?: string, targetEpoch?: number): Promise<FramePayload | undefined> => rpcSc("input", targetEpoch !== undefined && fin(targetEpoch) && targetEpoch > 0 ? { targetId, targetEpoch, events } : { targetId, events });
 const dropIn = (): void => { qIn = []; cTm(inT); inT = 0; dropTimers(); };
 const evIn = (action: string, o: Record<string, unknown> = {}, imm = 1, tid = S.aid, tep = S.tep): void => pushIn({ action, ...o }, imm, tid, tep);
@@ -161,7 +193,7 @@ const hideCvs = (): void => { painted = 0; hd(D.vc, 1); D.vc.className = "c"; hd
 const liveSched = (): void => { if (S.on && !isSb && S.st && !S.pa && !isDisc) sched(nextMs(0), 0); };
 
 const setErr = (code?: string | null, raw?: unknown, st?: number | boolean): void => { errCode = code || null; errRaw = raw ? eRaw(raw) : null; cErr = !!st && !!(code || raw); errDet = 0; syncBnr(); syncDots(); };
-const setPErr = (d: FramePayload | null | undefined, fb?: string, st?: number | boolean): void => (!d?.errorCode && !d?.error ? setErr() : setErr(eCode(d, fb), d.error, st));
+const setPErr = (d: FramePayload | null | undefined, fb?: string, st?: number | boolean): void => (!d?.errorCode && !d?.error ? setErr() : setErr(eCode(d, fb || (isBusyErrorText(d?.error) ? "b_busy" : undefined)), d.error, st));
 const setBErr = (err: unknown, st?: number | boolean): void => { const r = eRaw(err); setErr(mapBridgeErrorKey(r), r, st); };
 
 const bumpFps = (hit: number | boolean): void => { const t = nowMs(); if (hit) fTimes.push(t); while (fTimes.length && t - fTimes[0] > 1500) fTimes.shift(); fpsVal = fTimes.length ? Math.min(60, rnd(fTimes.length / 1.5)) : 0; };
@@ -665,7 +697,7 @@ const askUrg = (f = 0): void => { if (!S.on || isSb || isDisc || (S.pa && !f)) r
 const timing = (idleMs: number, inputBusy = 0) => net.computePollTiming({ idleMs, inputBusy: !!inputBusy, screencastIdle: S.id, hidden: hid(), errCount: pErr, settled: S.cr });
 const nextMs = (idleMs: number, busy = 0): number => (!hid() && S.nt ? Math.max(1200, Math.min(15000, rnd(net.ewmaRttMs * 3))) : timing(idleMs, busy).nextDelayMs);
 const reqFrame = (f: number, w: number, keep = 1): Promise<FramePayload | undefined> =>
-  rpcSc("frame", { targetId: S.aid || undefined, sinceSeq: !f && keep ? S.seq : 0, lastFrameHash: S.fh || undefined, knownTabsHash: S.th || undefined, ...qArgs(), waitMs: f ? 0 : w, forceRefresh: !!f });
+  rpcSc("frame", { targetId: S.aid || undefined, sinceSeq: !f && keep ? S.seq : 0, lastFrameHash: S.fh || undefined, knownTabsHash: S.th || undefined, ...qArgs(), waitMs: f || net.ewmaRttMs > 120 ? 0 : w, forceRefresh: !!f });
 const poll = async (f = 0): Promise<void> => {
   if (pB || isDisc || isSb || !canCall() || (!f && S.pa)) { if (f && pB && !isDisc && !isSb) urg = { f: true }; return; }
   pB = 1; const ep = S.ep, seq = ++pollSeq, t0 = pNow();

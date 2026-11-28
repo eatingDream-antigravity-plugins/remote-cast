@@ -8,7 +8,7 @@ export const I18N_KEYS: readonly string[] = (
   "sf|sv|svd|svf|sfb|ed|ep|" +
   "e_not_detected|e_port_busy|e_launch_failed|e_chrome_missing|e_allow_timeout|e_allow_denied|" +
   "e_conn_lost|e_timeout|e_tab_changed|e_tab_close_failed|e_relay_busy|e_relay_down|e_unconfirmed|" +
-  "b_closed|b_timeout|b_init|b_notools|b_generic"
+  "b_closed|b_timeout|b_init|b_notools|b_busy|b_generic"
 ).split("|");
 
 const EN: readonly string[] = (
@@ -20,7 +20,7 @@ const EN: readonly string[] = (
   "Settings file|Saving…|✓ Saved|Couldn't save|settings.json has an error. Using your last good settings.|Couldn't disconnect. Try again.|Couldn't pause. Try again.|" +
   "Chrome's remote debugging is off. Open chrome://inspect/#remote-debugging and turn it on, or open a separate Chrome.|Couldn't find a free port for separate Chrome. Try again, or connect your own Chrome.|Couldn't open separate Chrome. Try again.|Couldn't find Chrome on this Mac.|Chrome didn't answer. If it asked for permission, click Allow and try again.|Chrome declined the connection. Click Allow when it asks.|" +
   "Lost connection to Chrome.|Chrome is taking too long. Try again.|The tab changed. Try again.|Couldn't close the tab.|Remote Cast is busy. Try again in a moment.|Remote Cast's background service isn't running. Reopen the panel.|No confirmation from Chrome. Check the status and try again.|" +
-  "Lost connection to Antigravity.|Antigravity didn't respond. Try again.|Couldn't start the panel. Reopen it.|This panel can't run actions here.|Something went wrong. Try again."
+  "Lost connection to Antigravity.|Antigravity didn't respond. Try again.|Couldn't start the panel. Reopen it.|This panel can't run actions here.|Connection is busy. Try again in a moment.|Something went wrong. Try again."
 ).split("|");
 
 const ZH: readonly string[] = (
@@ -32,7 +32,7 @@ const ZH: readonly string[] = (
   "配置文件|正在保存…|✓ 已保存|保存失败|配置文件有误，暂时沿用上次的有效设置。|断开失败，请重试。|暂停失败，请重试。|" +
   "Chrome 还没开启远程调试。请打开 chrome://inspect/#remote-debugging 开启，或改用独立 Chrome。|独立 Chrome 找不到可用端口。请重试，或改为连接日常 Chrome。|独立 Chrome 没能打开，请重试。|这台 Mac 上没有找到 Chrome。|Chrome 没有响应。如果弹出了授权窗口，请点「允许」后重试。|Chrome 拒绝了连接。弹出授权窗口时请点「允许」。|" +
   "与 Chrome 的连接断开了。|Chrome 响应太慢，请重试。|标签页变了，请重试。|标签页没能关闭。|Remote Cast 正忙，请稍后再试。|Remote Cast 后台服务没有运行，请重新打开面板。|没有收到 Chrome 的确认，请查看状态后重试。|" +
-  "与 Antigravity 的连接已断开。|Antigravity 没有响应，请重试。|面板没能启动，请重新打开。|当前环境不支持面板操作。|出了点问题，请重试。"
+  "与 Antigravity 的连接已断开。|Antigravity 没有响应，请重试。|面板没能启动，请重新打开。|当前环境不支持面板操作。|当前请求繁忙，请稍后再试。|出了点问题，请重试。"
 ).split("|");
 
 export type I18nDict = Record<string, string>;
