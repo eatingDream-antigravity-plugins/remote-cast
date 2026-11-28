@@ -1,45 +1,18 @@
 // Authoritative EN / ZH-CN UI & error copy for Remote Cast (exported as keyed objects for i18n parity & guard checks).
-export const I18N_KEYS: readonly string[] = (
-  "nf|rt|cm|os|oss|cn|ht|s1|s2|s3|tb|nt|ct|pa|rs|dc|dcl|rv3|rvl|sbb|rsb|rsg|sbn|tsb|tsbi|rn|bk|fw|rl|up|ql|lv|ch|mc|sc|" +
-  "q_auto|q_ultra|q_low|q_medium|q_high|qt_auto|qt_ultra|qt_low|qt_medium|qt_high|" +
-  "fs|ps|rv|nc|kb|lv2|nt0|nt0b|wc|wcb|ld|pp|ip|tp|ti|se|bs|un|cp|ps2|sa|su|sd|pd|id|" +
-  "ok|ca|rp|da|df|dp|dl|ts|td|tpa|trs|trf|tcl|tsw|tsc|tnt|tcp|tps|trc|ttc|tdc|trl|" +
-  "st|dm|dt|rmy|rse|ap|qu|sb|ut|lg|la|dq|dc2|bg|ip2|of|k5|k12|k15|k30|k60|bgp|" +
-  "sf|sv|svd|svf|sfb|ed|ep|" +
-  "e_not_detected|e_port_busy|e_launch_failed|e_chrome_missing|e_allow_timeout|e_allow_denied|" +
-  "e_conn_lost|e_timeout|e_tab_changed|e_tab_close_failed|e_relay_busy|e_relay_down|e_unconfirmed|" +
-  "b_closed|b_timeout|b_init|b_notools|b_busy|b_generic"
-).split("|");
+const TOK: Record<string, string> = {};
+for (const p of "AChrome|B. Try again|C~W重~U|D标签页|Eonnect|FCould~@|Geparate ~A|H连接|I独立 ~A|J授权|K~m已|L暂停|Mtandby|N打开|O待机|PRemote Cast|QAntigravity|R chrome://inspect/#remote-de|S点「允许」|T正在|U试。|V失败|W，请|X · |Y is busy~B in a moment.|Z本机 ~A|aing…|bPaused|cettings|d继续|e断开|f配置文件|gllow|hpen |i permission|j ~A |k network|lClick |m✓ |n点击|o关闭|p画面|q输入|r画质|s remote debugging|tesume|u开启远程调~U|v忙~W稍后再~U|w and try again.|xLost c~Eion~+|y_timeout|zchange|0 tab|1uality|2窗口|3新建~D|4保留|5撤销|6刷新|7~b while idle|8 没有响应|9的~H已~e。|!lose|#ing |%S~M~XGrant |(0 FPS|)已~L~X~n~d|*onfirm|+ to |, the|-r o~ha s~G|.keeps~jA~g|/Revoke|:efresh|;~X~lto r~t|=Switch|?ackground |@n't |_ panel|<自动|>跟随|[，或|]闲置|&粘贴|'发送".split("|")) TOK[p[0]] = p.slice(1);
+const exp = (s: string): string => { while (s.includes("~")) s = s.replace(/~(.)/g, (_, c) => TOK[c]); return s; };
 
-const EN: readonly string[] = (
-  "Chrome not found|Retry|Connect my Chrome|Open separate Chrome|No permission prompt. Uses a clean profile.|Connecting…|How to connect|Open Chrome.|In Chrome, open $0 and turn on remote debugging.|Click *Connect my Chrome*, then Allow in Chrome. Or open a separate Chrome — no prompt.|Tabs|New tab|Close tab|Pause|Resume|Standby|Standby (keeps Chrome Allow)|Revoke|Revoke Grant|Standby · Grant Kept|Resume Stream|Resuming…|0 FPS standby — Chrome stays authorized. Resume anytime without re-allowing.|Standby · Grant kept|Entering standby…|Standby keeps Chrome Allow alive at 0 FPS. Use Revoke to drop it.|Back|Forward|Reload|URL or search|Quality|Level|Chrome|My Chrome|Separate Chrome|" +
-  "Auto|Saver|Low|Balanced|High|Adjusts to your network.|For very slow networks: lower quality, fewer frames.|For weak networks.|Good quality, smooth.|Sharpest. Needs a fast network.|" +
-  "Frame size|Page size|Refresh view|No change|Keyboard|Live view|No open tabs|Chrome is still connected.|Chrome window closed|Open a new tab to keep going, or enter standby.|Loading…|Paused · Click to resume|Paused while idle · Click to resume|Type or paste…|Type in|Send ↵|Delete|Undo|Copy|Paste|Select all|Scroll up|Scroll down|Paused|Paused while idle|" +
-  "OK|Cancel|Reply…|Alert|Confirm|Input|Leave this page?|✓ Sent|Disconnected|✓ Paused|✓ Resumed|↻ Refreshed|✓ Closed|Switching…|✓ Switched|↗ New tab|✓ Copied|✓ Pasted|Right-click|Switched tab|Disconnecting…|Settings file changed — reloaded.|" +
-  "Settings|Dismiss|Details|Chrome ready|Separate Chrome ready|Auto · | · {n} queued|Separate|Untitled|Language|Follow system|Default quality|Connect to|Background refresh|Idle pause|Off|5s|12s|15s|30s|60s|Paused (bg)|" +
-  "Settings file|Saving…|✓ Saved|Couldn't save|settings.json has an error. Using your last good settings.|Couldn't disconnect. Try again.|Couldn't pause. Try again.|" +
-  "Chrome's remote debugging is off. Open chrome://inspect/#remote-debugging and turn it on, or open a separate Chrome.|Couldn't find a free port for separate Chrome. Try again, or connect your own Chrome.|Couldn't open separate Chrome. Try again.|Couldn't find Chrome on this Mac.|Chrome didn't answer. If it asked for permission, click Allow and try again.|Chrome declined the connection. Click Allow when it asks.|" +
-  "Lost connection to Chrome.|Chrome is taking too long. Try again.|The tab changed. Try again.|Couldn't close the tab.|Remote Cast is busy. Try again in a moment.|Remote Cast's background service isn't running. Reopen the panel.|No confirmation from Chrome. Check the status and try again.|" +
-  "Lost connection to Antigravity.|Antigravity didn't respond. Try again.|Couldn't start the panel. Reopen it.|This panel can't run actions here.|Connection is busy. Try again in a moment.|Something went wrong. Try again."
-).split("|");
+export const I18N_KEYS: readonly string[] = exp("nf|rt|cm|os|oss|cn|ht|s1|s2|s3|tb|nt|ct|pa|rs|dc|dcl|rv3|rvl|sbb|rsb|rsg|sbn|tsb|tsbi|rn|bk|fw|rl|up|ql|lv|ch|mc|sc|q_auto|q_ultra|q_low|q_medium|q_high|qt_auto|qt_ultra|qt_low|qt_medium|qt_high|fs|ps|rv|nc|kb|lv2|nt0|nt0b|wc|wcb|ld|pp|ip|tp|ti|se|bs|un|cp|ps2|sa|su|sd|pd|id|ok|ca|rp|da|df|dp|dl|ts|td|tpa|trs|trf|tcl|tsw|tsc|tnt|tcp|tps|trc|ttc|tdc|trl|st|dm|dt|rmy|rse|ap|qu|sb|ut|lg|la|dq|dc2|bg|ip2|of|k5|k12|k15|k30|k60|bgp|th|th0|th1|th2|sf|sv|svd|svf|sfb|ed|ep|e_not_detected|e_port_busy|e_launch_failed|e_chrome_missing|e_a~g~y|e_a~g_denied|e_conn_lost|e~y|e_tab_~zd|e_tab_c~!_failed|e_relay_busy|e_relay_down|e_unc~*ed|b_c~!d|b~y|b_init|b_notools|b_busy|b_generic").split("|");
 
-const ZH: readonly string[] = (
-  "未发现 Chrome|重试|连接本机 Chrome|打开独立 Chrome|无需授权，使用全新配置。|正在连接…|连接说明|打开 Chrome。|在 Chrome 中打开 $0 并开启远程调试。|点击 *连接本机 Chrome*，并在 Chrome 弹窗中点「允许」；也可打开独立 Chrome，无需授权。|标签页|新建标签页|关闭标签页|暂停|继续|待机|待机（保留 Chrome 授权）|撤销|撤销授权|待机中 · 已保留授权|恢复画面|正在恢复…|0 FPS 待机中，Chrome 授权保持有效，随时点击即可直接恢复。|已待机 · 保留授权|正在待机…|待机将在 0 FPS 下保留 Chrome 授权；点击「撤销」才会彻底断开连接。|后退|前进|刷新|输入网址或搜索|画质|档位|连接方式|本机 Chrome|独立 Chrome|" +
-  "自动|省流|流畅|均衡|高清|跟随网速调整。|极弱网适用：更低画质与帧率。|弱网环境适用。|兼顾画质与流畅度。|最高画质，需较佳网络。|" +
-  "画面大小|页面尺寸|刷新画面|画面无变化|键盘|实时画面|暂无打开的标签页|Chrome 仍保持连接。|Chrome 窗口已关闭|新建标签页继续，或进入待机。|正在加载…|已暂停 · 点击继续|闲置已暂停 · 点击继续|输入或粘贴…|输入|发送 ↵|退格|撤销|复制|粘贴|全选|向上滚动|向下滚动|已暂停|闲置暂停|" +
-  "确定|取消|输入回复…|提示|确认|输入|离开此页？|✓ 已发送|已断开|✓ 已暂停|✓ 已继续|↻ 已刷新|✓ 已关闭|正在切换…|✓ 已切换|↗ 已新建标签页|✓ 已复制|✓ 已粘贴|右键|已切换标签页|正在断开…|配置文件已变更，已自动重载。|" +
-  "设置|关闭|详情|Chrome 已就绪|独立 Chrome 已就绪|自动 · | · 待发送 {n}|独立|无标题|语言|跟随系统|默认画质|默认连接|后台刷新|闲置暂停|关|5 秒|12 秒|15 秒|30 秒|60 秒|暂停|" +
-  "配置文件|正在保存…|✓ 已保存|保存失败|配置文件有误，暂时沿用上次的有效设置。|断开失败，请重试。|暂停失败，请重试。|" +
-  "Chrome 尚未开启远程调试。请打开 chrome://inspect/#remote-debugging 开启，或改用独立 Chrome。|独立 Chrome 暂无可用端口。请重试，或改为连接本机 Chrome。|独立 Chrome 启动失败，请重试。|未在这台 Mac 上找到 Chrome。|Chrome 没有响应。如果弹出了授权窗口，请点「允许」后重试。|Chrome 拒绝了连接。弹出授权窗口时请点「允许」。|" +
-  "与 Chrome 的连接已断开。|Chrome 响应超时，请重试。|目标标签页已变更，请重试。|关闭标签页失败。|Remote Cast 正忙，请稍后再试。|Remote Cast 后台服务未运行，请重新打开面板。|没有收到 Chrome 的确认，请查看状态后重试。|" +
-  "与 Antigravity 的连接已断开。|Antigravity 没有响应，请重试。|面板启动失败，请重新打开。|当前环境不支持面板操作。|当前请求繁忙，请稍后再试。|操作失败，请重试。"
-).split("|");
+const EN: readonly string[] = "~A not found|Retry|C~E my ~A|O~hs~G|No~i prompt. Uses a clean profile.|C~E~a|How~+c~E|O~h~A.|In ~A, o~h$0 and turn on~s.|~l*C~E my ~A*,~,n A~g in ~A. O~- — no~i.|Tabs|New~0|C~!~0|Pause|R~t|S~M|S~M (~.)|~/|~/ Grant|~%Kept|R~t Stream|Resum~a|~( s~M —~jstays authorized. R~t anytime without re-a~ging.|~%kept|Enter~#s~M…|S~M ~. alive at ~(. Use ~/~+drop it.|Back|Forward|Reload|URL or search|Q~1|Level|~A|My ~A|S~G|Auto|Saver|Low|Balanced|High|Adjusts~+your~k.|For very slow~ks: lower q~1, fewer frames.|For weak~ks.|Good q~1, smooth.|Sharpest. Needs a fast~k.|Frame size|Page size|R~: view|No ~z|Keyboard|Live view|No o~htabs|~A is still c~Eed.|~A window c~!d|O~hnew~0~+keep going, or enter s~M.|Load~a|~b~;|~7~;|Type or paste…|Type in|Send ↵|Delete|Undo|Copy|Paste|Select all|Scroll up|Scroll down|~b|~7|OK|Cancel|Reply…|Alert|C~*|Input|Leave this page?|~mSent|Disc~Eed|~m~b|~mR~td|↻ R~:ed|~mC~!d|~=~a|~m~=ed|↗ New~0|~mCopied|~mPasted|Right-click|~=ed~0|Disc~E~a|S~c ~zd — reloaded.|S~c|Dismiss|Details|~A ready|S~G ready|Auto~X|~X{n} queued|Separate|Untitled|Language|Fo~g system|Default q~1|C~E to|B~?r~:|Idle pause|Off|5s|12s|15s|30s|60s|~b (bg)|Theme|Fo~g Agy|Light|Dark|S~c file|Sav~a|~mSaved|~Fsave|S~c has an error. Us~#your last good s~c.|~Fdisc~E~B.|~Fpause~B.|~A's~s is off. Open~Rbugg~#and turn it on, o~-.|~Ffind a free port for s~G~B, or c~E your own ~A.|~Fo~hs~G~B.|~Ffind~jon this Mac.|~A did~@answer. If it asked for~i, ~lA~g~w|~A declined~, c~Eion. ~lA~g when it asks.|~x~A.|~A is tak~#too long~B.|The~0 ~zd~B.|~Fc~!~,~0.|~P~Y|~P's b~?service is~@running. Reo~hthe~_.|No c~*ation from ~A. Check~, status~w|~x~Q.|~Q did~@respond~B.|~Fstart~,~_. Reo~hit.|This~_ ca~@run actions here.|C~Eion~Y|Someth~#went wrong~B.".split("|");
+const ZH: readonly string[] = "未发现 ~A|重试|~H~Z|~N~I|无需~J，使用全新配置。|~T~H…|~H说明|~N ~A。|在~j中~N $0 并~u|~n *~H~Z*，并在~j弹~2中~S；也可~N~I，无需~J。|~D|~3|~o~D|~L|~d|~O|~O（~4~j~J）|~5|~5~J|~O中~X已~4~J|恢复~p|~T恢复…|~( ~O中，~A ~J保持有效，随时~n即可直接~d。|已~O~X~4~J|~T~O…|~O将在 ~( 下~4~j~J；~n「~5」才会彻底~e~H。|后退|前进|~6|~q网址或搜索|~r|档位|~H方式|~Z|~I|~<|省流|流畅|均衡|高清|~>网速调整。|极弱网适用：更低~r与帧率。|弱网环境适用。|兼顾~r与流畅度。|最高~r，需较佳网络。|~p大小|页面尺寸|~6~p|~p无变化|键盘|实时~p|暂无~N的~D|~A 仍保持~H。|~A ~2已~o|~3~d~[进入~O。|~T加载…|~)|~]~)|~q或~&…|~q|~' ↵|退格|~5|复制|~&|全选|向上滚动|向下滚动|已~L|~]~L|确定|取消|~q回复…|提示|确认|~q|离开此页？|~K~'|已~e|~K~L|~K~d|↻ 已~6|~K~o|~T切换…|~K切换|↗ 已~3|~K复制|~K~&|右键|已切换~D|~T~e…|~f已变更，已~<重载。|设置|~o|详情|~A 已就绪|~I已就绪|~<~X|~X待~' {n}|独立|无标题|语言|~>系统|默认~r|默认~H|后台~6|~]~L|关|5 秒|12 秒|15 秒|30 秒|60 秒|~L|外观|~> Agy|浅色|深色|~f|~T保存…|~K保存|保存~V|~f有误，暂时沿用上次的有效设置。|~e~V~C|~L~V~C|~A 尚未~u请~N~Rbugg~#开启~[改用~I。|~I暂无可用端口。请重试~[改为~H~Z。|~I启动~V~C|未在这台 Mac 上找到 ~A。|~A~8。如果弹出了~J~2~W~S后重~U|~A 拒绝了~H。弹出~J~2时请~S。|与~j~9|~A 响应超时~C|目标~D已变更~C|~o~D~V。|~P 正~v|~P 后台服务未运行~W重新~N面板。|没有收到~j的确认~W查看状态后重~U|与 ~Q ~9|~Q~8~C|面板启动~V~W重新~N。|当前环境不支持面板操作。|当前请求繁~v|操作~V~C".split("|");
 
 export type I18nDict = Record<string, string>;
 
 const zip = (vals: readonly string[]): I18nDict => {
   const o: I18nDict = {};
-  for (let i = 0; i < I18N_KEYS.length; i++) o[I18N_KEYS[i]] = vals[i];
+  for (let i = 0; i < I18N_KEYS.length; i++) o[I18N_KEYS[i]] = exp(vals[i]);
   return o;
 };
 

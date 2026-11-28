@@ -10,10 +10,12 @@
 export const LATEST_PROTOCOL_VERSION = "2026-01-26";
 
 const BG_VAR = "--color-background-primary";
+const VSCODE_BG_VAR = "--vscode-editor-background";
 const JSONRPC_VER = "2.0";
 const UI_NOTIF_PREFIX = "ui/notifications/";
 
 export type DocumentTheme = "light" | "dark";
+export type ThemePreference = "system" | "light" | "dark";
 
 export interface AppInfo {
   name: string;
@@ -51,6 +53,8 @@ export interface ContainerDimensions {
 
 export interface HostContext {
   theme?: string;
+  colorScheme?: string;
+  appearance?: string;
   styles?: HostStyles;
   containerDimensions?: ContainerDimensions;
   [key: string]: unknown;
@@ -69,6 +73,8 @@ export interface BridgeRootElement extends BridgeStyleTarget {
   getAttribute(name: string): string | null;
   setAttribute(name: string, value: string): void;
   getBoundingClientRect(): { height: number; width?: number };
+  appendChild?(node: unknown): unknown;
+  removeChild?(node: unknown): unknown;
 }
 
 export interface BridgeMetaElement {
@@ -79,12 +85,27 @@ export interface BridgeMetaElement {
 export interface BridgeStyleElement {
   id: string;
   textContent: string | null;
+  style?: {
+    color?: string;
+    backgroundColor?: string;
+    display?: string;
+    setProperty?(name: string, value: string): void;
+  } | null;
+  remove?(): void;
 }
 
 export interface BridgeBodyTarget {
   style?: {
     backgroundColor?: string;
   } | null;
+  appendChild?(node: unknown): unknown;
+  removeChild?(node: unknown): unknown;
+}
+
+export interface BridgeComputedStyle {
+  color?: string;
+  backgroundColor?: string;
+  getPropertyValue?(prop: string): string;
 }
 
 export interface BridgeDocument {
@@ -115,6 +136,7 @@ export interface BridgeWindow {
   parent?: BridgeTargetWindow | null;
   innerWidth?: number;
   requestAnimationFrame?: (callback: () => void) => unknown;
+  getComputedStyle?: (elt: unknown) => BridgeComputedStyle;
   addEventListener?(type: "message", listener: (ev: BridgeMessageEvent) => void): void;
   removeEventListener?(type: "message", listener: (ev: BridgeMessageEvent) => void): void;
 }
@@ -136,6 +158,7 @@ export interface AppOptions {
   targetOrigin?: string;
   target?: BridgeTargetWindow | null;
   ResizeObserver?: ResizeObserverConstructor | null;
+  themePreference?: ThemePreference;
 }
 
 export interface ConnectOptions {
@@ -183,9 +206,13 @@ export interface ToolCallMetrics<T = ToolCallResult> {
 export interface BridgeApp {
   onteardown?: (params: Record<string, unknown>) => unknown | Promise<unknown>;
   onhostcontextchanged?: (delta: Partial<HostContext>, merged: HostContext) => unknown | Promise<unknown>;
+  onhostthemechanged?: (hostTheme: DocumentTheme) => unknown | Promise<unknown>;
   ontoolinput?: (params: Record<string, unknown>) => unknown | Promise<unknown>;
   ontoolresult?: (params: Record<string, unknown>) => unknown | Promise<unknown>;
   ontoolcancelled?: (params: Record<string, unknown>) => unknown | Promise<unknown>;
+  setThemePreference(pref: ThemePreference): DocumentTheme;
+  getThemePreference(): ThemePreference;
+  getResolvedHostTheme(): DocumentTheme | null;
   isConnected(): boolean;
   hasServerTools(): boolean;
   getHostCapabilities(): HostCapabilities | null;
@@ -324,19 +351,120 @@ function parseColorAlphaLum(raw: unknown): ColorAlphaLum | null {
   return null;
 }
 
+function parseUnitChannel(raw: unknown): number | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const isPct = s.endsWith("%");
+  const numPart = isPct ? s.slice(0, -1) : s;
+  if (!STRICT_NUM_RE.test(numPart)) return null;
+  const n = Number(numPart);
+  if (!Number.isFinite(n)) return null;
+  const unit = isPct ? n / 100 : n;
+  return Math.max(0, Math.min(1, unit));
+}
+
+function parseSrgbColorFn(raw: unknown): ColorAlphaLum | null {
+  const s = String(raw || "").trim();
+  const m = s.match(
+    /^color\(\s*srgb\s+([^\s,/]+)\s+([^\s,/]+)\s+([^\s,/]+)(?:\s*\/\s*([^)]*))?\s*\)$/i
+  );
+  if (!m) return null;
+  const r = parseUnitChannel(m[1]);
+  const g = parseUnitChannel(m[2]);
+  const b = parseUnitChannel(m[3]);
+  if (r === null || g === null || b === null) return null;
+  const a = m[4] !== undefined ? parseAlpha(m[4]) : 1;
+  if (a === null) return null;
+  const lum = rgbLuminance(r * 255, g * 255, b * 255);
+  return Number.isFinite(lum) ? { a, lum } : null;
+}
+
+function extractDirectLum(s: string): number | null {
+  const first = parseColorAlphaLum(s);
+  const resolved = first && first.lum !== null ? first : parseSrgbColorFn(s);
+  return resolved &&
+    Number.isFinite(resolved.a) &&
+    resolved.a >= 0.5 &&
+    resolved.lum !== null &&
+    Number.isFinite(resolved.lum)
+    ? resolved.lum
+    : null;
+}
+
 /**
  * Returns relative luminance in [0, 1] for opaque/semi-opaque colors (alpha >= 0.5),
  * or null for transparent/unparseable colors.
+ *
+ * When direct `#hex` / `rgb()` / `color(srgb ...)` parsing returns null (e.g. `oklch`, `lab`,
+ * `hsl`, `light-dark(...)`), falls back to a hidden DOM element's computed color if
+ * `doc?.createElement` and `getComputedStyle` are available.
  */
-export function parseColorLum(raw: unknown): number | null {
-  const parsed = parseColorAlphaLum(raw);
-  return parsed &&
-    Number.isFinite(parsed.a) &&
-    parsed.a >= 0.5 &&
-    parsed.lum !== null &&
-    Number.isFinite(parsed.lum)
-    ? parsed.lum
-    : null;
+export function parseColorLum(
+  raw: unknown,
+  doc: BridgeDocLike | null = typeof document !== "undefined" ? document : null,
+  win: BridgeWindowLike | null = typeof window !== "undefined" ? window : null
+): number | null {
+  const s = String(raw ?? "").trim();
+  if (
+    !s ||
+    /^(transparent|none|initial|unset|inherit|currentcolor|revert|revert-layer)$/i.test(s)
+  ) {
+    return null;
+  }
+  const directLum = extractDirectLum(s);
+  if (directLum !== null) return directLum;
+  if (/[;{}]|url\s*\(/i.test(s) || !doc?.createElement) return null;
+  const view =
+    win ??
+    (doc as BridgeDocument).defaultView ??
+    (typeof window !== "undefined" ? window : null);
+  const getCS =
+    typeof view?.getComputedStyle === "function"
+      ? (el: unknown) => (view as BridgeWindow).getComputedStyle!(el)
+      : typeof getComputedStyle === "function"
+        ? (el: unknown) => getComputedStyle(el as Element) as BridgeComputedStyle
+        : null;
+  if (!getCS) return null;
+
+  const probe = doc.createElement("span");
+  if (!probe?.style) return null;
+  probe.style.display = "none";
+  probe.style.backgroundColor = "";
+  probe.style.color = "";
+  if (typeof probe.style.setProperty === "function") {
+    probe.style.setProperty("background-color", s);
+    probe.style.setProperty("color", s);
+  } else {
+    probe.style.backgroundColor = s;
+    probe.style.color = s;
+  }
+  if (!probe.style.backgroundColor && !probe.style.color) return null;
+
+  const hostParent = (doc.body ?? doc.documentElement) as
+    | { appendChild?(node: unknown): unknown; removeChild?(node: unknown): unknown }
+    | null
+    | undefined;
+  const canMount =
+    Boolean(hostParent) &&
+    typeof hostParent?.appendChild === "function" &&
+    (typeof probe.remove === "function" || typeof hostParent?.removeChild === "function");
+  try {
+    if (canMount) hostParent!.appendChild!(probe);
+    const cs = getCS(probe);
+    const computed = String(cs?.backgroundColor || cs?.color || "").trim();
+    return computed ? extractDirectLum(computed) : null;
+  } catch {
+    return null;
+  } finally {
+    if (canMount) {
+      try {
+        if (typeof probe.remove === "function") probe.remove();
+        else hostParent!.removeChild!(probe);
+      } catch {
+        // Ignore detach errors in synthetic DOM mocks.
+      }
+    }
+  }
 }
 
 /**
@@ -350,16 +478,41 @@ export function measureNetRttMs(totalMs: number, serverMs = 0): number {
 
 const desiredThemeByDoc = new WeakMap<object, DocumentTheme>();
 
+function sameCanvasBg(current: string | undefined, theme: DocumentTheme): boolean {
+  const norm = String(current ?? "").trim().toLowerCase();
+  if (!norm) return false;
+  return theme === "light"
+    ? norm === "#f8fafd" || /^rgb\(\s*248[\s,]+250[\s,]+253\s*\)$/.test(norm)
+    : norm === "#0b0d12" || /^rgb\(\s*11[\s,]+13[\s,]+18\s*\)$/.test(norm);
+}
+
+function isDocumentAlreadyAtTheme(theme: DocumentTheme, doc: BridgeDocLike): boolean {
+  const el = doc.documentElement;
+  if (!el || el.getAttribute("data-theme") !== theme) return false;
+  if (el.style) {
+    if (el.style.colorScheme && el.style.colorScheme !== theme) return false;
+    if (el.style.backgroundColor && !sameCanvasBg(el.style.backgroundColor, theme)) return false;
+  }
+  if (doc.body?.style?.backgroundColor && !sameCanvasBg(doc.body.style.backgroundColor, theme)) {
+    return false;
+  }
+  const meta = doc.querySelector?.('meta[name="color-scheme"]');
+  if (meta && meta.getAttribute("content") !== theme) return false;
+  return true;
+}
+
 function commitDocumentTheme(theme: DocumentTheme, doc: BridgeDocLike): void {
   const el = doc.documentElement;
   if (!el) return;
   const bg = theme === "light" ? "#F8FAFD" : "#0B0D12";
   if (el.getAttribute("data-theme") !== theme) el.setAttribute("data-theme", theme);
   if (el.style) {
-    el.style.colorScheme = theme;
-    el.style.backgroundColor = bg;
+    if (el.style.colorScheme !== theme) el.style.colorScheme = theme;
+    if (!sameCanvasBg(el.style.backgroundColor, theme)) el.style.backgroundColor = bg;
   }
-  if (doc.body?.style) doc.body.style.backgroundColor = bg;
+  if (doc.body?.style && !sameCanvasBg(doc.body.style.backgroundColor, theme)) {
+    doc.body.style.backgroundColor = bg;
+  }
   const meta = doc.querySelector?.('meta[name="color-scheme"]');
   if (meta && meta.getAttribute("content") !== theme) meta.setAttribute("content", theme);
 }
@@ -371,6 +524,7 @@ export function applyDocumentTheme(
 ): void {
   if ((theme !== "light" && theme !== "dark") || !doc?.documentElement) return;
   desiredThemeByDoc.set(doc as object, theme);
+  if (isDocumentAlreadyAtTheme(theme, doc)) return;
   if (theme === "light" && doc.querySelector?.(".boot-frame")) {
     const view =
       win ??
@@ -424,6 +578,60 @@ export function applyHostFonts(
   if (styleEl && styleEl.textContent !== css) styleEl.textContent = css;
 }
 
+function classifyThemeToken(raw: unknown): DocumentTheme | null {
+  if (typeof raw !== "string") return null;
+  const low = raw.trim().toLowerCase();
+  if (!low) return null;
+  const hasDark = /dark|night|black/.test(low);
+  const hasLight = /light|day|white/.test(low);
+  if (hasDark && !hasLight) return "dark";
+  if (hasLight && !hasDark) return "light";
+  return null;
+}
+
+/**
+ * Resolves Antigravity's live host theme from `ctx.theme`, `ctx.colorScheme`, `ctx.appearance`,
+ * `--color-background-primary`, or `--vscode-editor-background` (never OS `prefers-color-scheme`).
+ */
+export function resolveHostTheme(
+  ctx: HostContext | null | undefined,
+  doc: BridgeDocLike | null = typeof document !== "undefined" ? document : null,
+  win: BridgeWindowLike | null = typeof window !== "undefined" ? window : null
+): DocumentTheme | null {
+  if (!ctx || typeof ctx !== "object") return null;
+  for (const raw of [ctx.theme, ctx.colorScheme, ctx.appearance]) {
+    const classified = classifyThemeToken(raw);
+    if (classified) return classified;
+  }
+  const vars = ctx.styles?.variables;
+  const candidates: unknown[] = [vars?.[BG_VAR], vars?.[VSCODE_BG_VAR]];
+  const view =
+    win ??
+    (doc as BridgeDocument | null)?.defaultView ??
+    (typeof window !== "undefined" ? window : null);
+  const getCS =
+    typeof view?.getComputedStyle === "function"
+      ? (el: unknown) => (view as BridgeWindow).getComputedStyle!(el)
+      : typeof getComputedStyle === "function"
+        ? (el: unknown) => getComputedStyle(el as Element) as BridgeComputedStyle
+        : null;
+  if (getCS && doc?.documentElement) {
+    try {
+      const cs = getCS(doc.documentElement);
+      if (typeof cs?.getPropertyValue === "function") {
+        candidates.push(cs.getPropertyValue(BG_VAR), cs.getPropertyValue(VSCODE_BG_VAR));
+      }
+    } catch {
+      // Ignore computed style errors on partial DOM mocks.
+    }
+  }
+  for (const cand of candidates) {
+    const lum = parseColorLum(cand, doc, win);
+    if (lum !== null) return lum < 0.45 ? "dark" : "light";
+  }
+  return null;
+}
+
 export function applyHostContext(
   ctx: HostContext | null | undefined,
   doc: BridgeDocLike | null = typeof document !== "undefined" ? document : null,
@@ -437,23 +645,13 @@ export function applyHostContext(
   if (styles?.css?.fonts) {
     applyHostFonts(styles.css.fonts, doc);
   }
-  const rawTheme = String(ctx.theme || "").trim().toLowerCase();
-  let theme: DocumentTheme | null = /dark|night|black/.test(rawTheme)
-    ? "dark"
-    : /light|day|white/.test(rawTheme)
-      ? "light"
-      : null;
-  if (!theme) {
-    const bgVar =
-      styles?.variables?.[BG_VAR] ||
-      (typeof getComputedStyle === "function" && doc?.documentElement
-        ? getComputedStyle(doc.documentElement as Element).getPropertyValue(BG_VAR)
-        : "");
-    const lum = parseColorLum(bgVar);
-    if (lum !== null) theme = lum < 0.45 ? "dark" : "light";
-  }
+  const theme = resolveHostTheme(ctx, doc, win);
   if (theme) applyDocumentTheme(theme, doc, win);
   return theme;
+}
+
+function normalizeThemePreference(pref: unknown): ThemePreference {
+  return pref === "light" || pref === "dark" ? pref : "system";
 }
 
 /**
@@ -492,6 +690,13 @@ export function App(
     this && typeof this === "object" ? (this as Partial<BridgeApp>) : {};
   let hostCaps: HostCapabilities | null = null;
   let hostCtx: HostContext | null = null;
+  let themePref: ThemePreference = normalizeThemePreference(options.themePreference);
+  let resolvedHostTheme: DocumentTheme | null = null;
+  const initialDocTheme: DocumentTheme =
+    doc?.documentElement?.getAttribute("data-theme") === "light" ? "light" : "dark";
+  if (themePref === "light" || themePref === "dark") {
+    applyDocumentTheme(themePref, doc, win);
+  }
   let nextId = 1;
   let initOk = false;
   let connEpoch = 0;
@@ -501,6 +706,54 @@ export function App(
   let listening = false;
   let resizeObserver: ResizeObserverLike | null = null;
   let lastRttMs: number | null = null;
+
+  const syncHostContext = (
+    ctx: HostContext | null,
+    delta?: Partial<HostContext>
+  ): DocumentTheme | null => {
+    if (!ctx || typeof ctx !== "object") return null;
+    const styles = ctx.styles;
+    if (styles?.variables && doc?.documentElement) {
+      applyHostStyleVariables(styles.variables, doc.documentElement);
+    }
+    if (styles?.css?.fonts) {
+      applyHostFonts(styles.css.fonts, doc);
+    }
+    const deltaHasThemeSignal =
+      delta !== undefined &&
+      delta !== null &&
+      typeof delta === "object" &&
+      (delta.theme !== undefined ||
+        delta.colorScheme !== undefined ||
+        delta.appearance !== undefined ||
+        delta.styles?.variables?.[BG_VAR] !== undefined ||
+        delta.styles?.variables?.[VSCODE_BG_VAR] !== undefined);
+    const nextHostTheme =
+      (deltaHasThemeSignal ? resolveHostTheme(delta as HostContext, doc, win) : null) ??
+      resolveHostTheme(ctx, doc, win);
+    const changedTheme =
+      nextHostTheme !== null && nextHostTheme !== resolvedHostTheme ? nextHostTheme : null;
+    if (nextHostTheme !== null) {
+      resolvedHostTheme = nextHostTheme;
+    }
+    const effective = themePref === "system" ? nextHostTheme : themePref;
+    if (effective) {
+      applyDocumentTheme(effective, doc, win);
+    }
+    return changedTheme;
+  };
+
+  function setThemePreference(pref: ThemePreference): DocumentTheme {
+    themePref = normalizeThemePreference(pref);
+    const effective: DocumentTheme =
+      themePref === "system"
+        ? resolvedHostTheme ??
+          (hostCtx ? resolveHostTheme(hostCtx, doc, win) : null) ??
+          initialDocTheme
+        : themePref;
+    applyDocumentTheme(effective, doc, win);
+    return effective;
+  }
 
   const post = (payload: unknown): void => {
     if (!target || typeof target.postMessage !== "function") {
@@ -631,14 +884,22 @@ export function App(
       if (method.startsWith(UI_NOTIF_PREFIX)) {
         const key = method.slice(UI_NOTIF_PREFIX.length);
         if (key === "host-context-changed") {
-          try {
-            hostCtx = mergeHostContext(hostCtx, params as Partial<HostContext>);
-            applyHostContext(hostCtx, doc, win);
-            if (typeof self.onhostcontextchanged === "function") {
-              await self.onhostcontextchanged(params as Partial<HostContext>, hostCtx);
+          const delta = params as Partial<HostContext>;
+          hostCtx = mergeHostContext(hostCtx, delta);
+          const changedHostTheme = syncHostContext(hostCtx, delta);
+          if (changedHostTheme && typeof self.onhostthemechanged === "function") {
+            try {
+              await self.onhostthemechanged(changedHostTheme);
+            } catch {
+              // Isolate user callback errors to prevent unhandledrejection.
             }
-          } catch {
-            // Isolate user callback errors to prevent unhandledrejection.
+          }
+          if (typeof self.onhostcontextchanged === "function") {
+            try {
+              await self.onhostcontextchanged(params as Partial<HostContext>, hostCtx);
+            } catch {
+              // Isolate user callback errors to prevent unhandledrejection.
+            }
           }
         } else {
           const handlerMap: Record<
@@ -745,6 +1006,7 @@ export function App(
     initOk = false;
     hostCaps = null;
     hostCtx = null;
+    resolvedHostTheme = null;
     activeOrigin = configuredOrigin;
     detachListener();
     resizeObserver?.disconnect();
@@ -859,7 +1121,14 @@ export function App(
           hostCaps = res.hostCapabilities || {};
           hostCtx = res.hostContext || null;
           initOk = true;
-          applyHostContext(hostCtx, doc, win);
+          const changedHostTheme = syncHostContext(hostCtx);
+          if (changedHostTheme && typeof self.onhostthemechanged === "function") {
+            try {
+              await self.onhostthemechanged(changedHostTheme);
+            } catch {
+              // Isolate user callback errors so connect() still completes cleanly.
+            }
+          }
           notification(`${UI_NOTIF_PREFIX}initialized`);
           startAutoResizeIfInline();
           return;
@@ -896,6 +1165,9 @@ export function App(
   }
 
   return Object.assign(self, {
+    setThemePreference,
+    getThemePreference: () => themePref,
+    getResolvedHostTheme: () => resolvedHostTheme,
     isConnected: () => initOk,
     hasServerTools,
     getHostCapabilities: () => hostCaps,

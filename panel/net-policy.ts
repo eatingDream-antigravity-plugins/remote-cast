@@ -188,11 +188,13 @@ export interface RevealObserversOptions {
 }
 
 const TIERS: readonly QualityTier[] = ["ultra", "low", "medium", "high"];
-const nFin = Number.isFinite;
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
-const eb = (c: number): number => (c > 0 ? Math.min(4, 1 << Math.min(c, 2)) : 1);
+const { max: mx, min: mn, round: rd, abs: ab } = Math, isA = Array.isArray, nFin = Number.isFinite;
+const K_TID = "targetId", K_AT = "activeTargetId", K_MOD = "modifiers", K_PA = "paused", K_TB = "tabs", K_EW = "ewmaRttMs", K_ET = "effectiveTier", K_BG = "bgPollIntervalSec", K_CH = "changed", K_SQ = "seq", K_FH = "frameHash";
+const clamp = (v: number, lo: number, hi: number): number => mx(lo, mn(hi, v));
+const eb = (c: number): number => (c > 0 ? mn(4, 1 << mn(c, 2)) : 1);
 const tierVal = (r: number, u: number, l: number, m: number, h: number): number =>
   r >= 750 ? u : r >= 350 ? l : r >= 140 ? m : h;
+const tIx = (t: QualityTier): number => TIERS.indexOf(t);
 
 export const REP: Set<string> = new Set(
   "Backspace Delete ArrowUp ArrowDown ArrowLeft ArrowRight PageUp PageDown Tab".split(" ")
@@ -230,7 +232,7 @@ export const resolvePanelLang = ({
 
 export const mapBridgeErrorKey = (raw: unknown): BridgeErrorKey => {
   const s = String(raw || "").trim();
-  return /^(?:closed|not connected)$/i.test(s) || /\bnot connected\b/i.test(s)
+  return /^closed$|\bnot connected\b/i.test(s)
     ? "b_closed"
     : /^timeout\b/i.test(s)
       ? "b_timeout"
@@ -246,73 +248,68 @@ export const mapBridgeErrorKey = (raw: unknown): BridgeErrorKey => {
 export class AdaptiveBandwidthController {
   mode: QualityMode | string;
   effectiveTier: QualityTier;
-  calibrated: boolean;
   ewmaRttMs: number;
   lastNetRttMs: number;
-  fastStreak: number;
-  slowStreak: number;
-  lastUpgradeAt: number;
   bgPollIntervalSec: number;
   wheelCoalesceMs: number;
+  private _c = false;
+  private _f = 0;
+  private _s = 0;
+  private _u = 0;
 
   constructor(m: QualityMode | string = "auto") {
     this.mode = m;
-    this.effectiveTier = (m === "auto" ? "low" : m) as QualityTier;
-    this.calibrated = false;
-    this.ewmaRttMs = this.lastNetRttMs = this.fastStreak = this.slowStreak = this.lastUpgradeAt = this.bgPollIntervalSec = 0;
+    this[K_ET] = (m === "auto" ? "low" : m) as QualityTier;
+    this[K_EW] = this.lastNetRttMs = this[K_BG] = 0;
     this.wheelCoalesceMs = 75;
   }
 
   setMode(m: string): void {
     const s = this;
     s.mode = m === "auto" || TIERS.includes(m as QualityTier) ? m : "auto";
-    s.fastStreak = s.slowStreak = 0;
-    s.effectiveTier = s.mode !== "auto" ? (s.mode as QualityTier) : s.calibrated ? s._t(s.ewmaRttMs, 0, 0) : "low";
+    s._f = s._s = 0;
+    s[K_ET] = s.mode !== "auto" ? (s.mode as QualityTier) : s._c ? s._t(s[K_EW], 0, 0) : "low";
   }
 
   getEffectiveQuality(): QualityTier {
-    return (this.mode === "auto" ? this.effectiveTier : this.mode) as QualityTier;
+    return (this.mode === "auto" ? this[K_ET] : this.mode) as QualityTier;
   }
 
   _t(r: number, b: number, n: number): QualityTier {
-    return r >= 750 || (b >= 14000 && n >= 850)
-      ? "ultra"
-      : r >= 350 || (b >= 14000 && n >= 420)
-        ? "low"
-        : r >= 140
-          ? "medium"
-          : "high";
+    return r >= 750 || (b >= 14000 && n >= 850) ? "ultra" : r >= 350 || (b >= 14000 && n >= 420) ? "low" : r >= 140 ? "medium" : "high";
   }
 
   recordSample({ totalMs: tm, serverMs: sm = 0, imageBytes: ib = 0, now: nw = Date.now() }: SampleInput): SampleResult {
-    const s = this;
-    const net = Math.max(1, Math.round((+tm || 0) - Math.max(0, +sm || 0)));
-    const r = !s.calibrated || s.ewmaRttMs <= 0 ? net : Math.round(s.ewmaRttMs * 0.75 + net * 0.25);
-    const prev = s.effectiveTier;
+    const s = this, net = mx(1, rd((+tm || 0) - mx(0, +sm || 0)));
+    const r = !s._c || s[K_EW] <= 0 ? net : rd(s[K_EW] * 0.75 + net * 0.25);
+    const prev = s[K_ET];
     s.lastNetRttMs = net;
-    s.ewmaRttMs = r;
+    s[K_EW] = r;
     if (s.mode === "auto") {
       const want = s._t(r, ib, net);
-      if (!s.calibrated) (s.calibrated = true), (s.effectiveTier = want), (s.fastStreak = s.slowStreak = 0), (s.lastUpgradeAt = nw);
+      if (!s._c) (s._c = true), (s[K_ET] = want), (s._f = s._s = 0), (s._u = nw);
       else {
-        const ci = TIERS.indexOf(prev);
-        const di = TIERS.indexOf(want);
-        const ri = TIERS.indexOf(s._t(net, ib, net));
+        const ci = tIx(prev), di = tIx(want), ri = tIx(s._t(net, ib, net));
         const up = prev === "ultra" ? 520 : prev === "low" ? 240 : 100;
         di < ci && ri < ci
-          ? ((s.fastStreak = 0), ++s.slowStreak >= 2 && ((s.effectiveTier = TIERS[Math.max(di, ri)]), (s.slowStreak = 0)))
+          ? ((s._f = 0), ++s._s >= 2 && ((s[K_ET] = TIERS[mx(di, ri)]), (s._s = 0)))
           : di > ci && ri > ci && r < up && net < up
-            ? ((s.slowStreak = 0),
-              ++s.fastStreak >= 3 && nw - s.lastUpgradeAt >= 4000 && ((s.effectiveTier = TIERS[ci + 1]), (s.fastStreak = 0), (s.lastUpgradeAt = nw)))
-            : (s.fastStreak = s.slowStreak = 0);
+            ? ((s._s = 0), ++s._f >= 3 && nw - s._u >= 4000 && ((s[K_ET] = TIERS[ci + 1]), (s._f = 0), (s._u = nw)))
+            : (s._f = s._s = 0);
       }
-    } else s.calibrated = true;
+    } else s._c = true;
     const effectiveTier = s.getEffectiveQuality();
     return { netRttMs: net, ewmaRttMs: r, effectiveTier, tierChanged: prev !== effectiveTier };
   }
 
   getNetworkGrade(): NetworkGrade {
-    return !this.calibrated ? "good" : this.ewmaRttMs >= 350 ? "weak" : this.ewmaRttMs >= 140 ? "mid" : "good";
+    const r = this[K_EW];
+    return !this._c || r < 140 ? "good" : r >= 350 ? "weak" : "mid";
+  }
+
+  private _bg(h: boolean, m: number, fb: number): number {
+    const r = this[K_EW], bg = this[K_BG], d = h && bg === -1 ? -1 : h && bg > 0 ? mn(3e5, bg * 1e3 * m) : mn(3e4, fb * m);
+    return d < 0 ? d : mx(d, mn(15e3, rd(r * 3)));
   }
 
   computePollTiming({
@@ -323,38 +320,22 @@ export class AdaptiveBandwidthController {
     errCount: ec = 0,
     settled: st = false,
   }: PollTimingInput = {}): PollTimingResult {
-    const r = this.ewmaRttMs;
-    const m = eb(ec);
-    const bg = this.bgPollIntervalSec;
-    const p = (waitMs: number, d: number): PollTimingResult => ({ waitMs, nextDelayMs: d });
+    const r = this[K_EW], m = eb(ec);
+    const p = (waitMs: number, nextDelayMs: number): PollTimingResult => ({ waitMs, nextDelayMs });
     const t3 = (a: number, b: number, c: number): number => (r > 700 ? a : r > 350 ? b : c);
-    const fl = (b: number): number => (b < 0 ? b : Math.max(b, Math.min(15000, Math.round(r * 3))));
-    return h
-      ? p(0, fl(bg === -1 ? -1 : bg > 0 ? Math.min(300000, bg * 1000 * m) : Math.min(30000, tierVal(r, 12000, 8000, 4000, 2000) * m)))
-      : si && !ib
-        ? p(0, fl(Math.min(20000, 4000 * m)))
-        : ib
-          ? p(r > 350 ? 220 : 140, clamp(Math.round(r * 0.3), 75, 220))
-          : ec > 0
-            ? p(0, fl(Math.min(16000, (im < 3500 ? 1000 : im < 12000 ? 1500 : 2000) * m)))
-            : st && im >= 1000
-              ? p(1400, fl(t3(600, 350, 180)))
-              : im < 3500
-                ? p(r > 350 ? 280 : 180, t3(300, 160, 50))
-                : im < 12000
-                  ? p(1350, fl(t3(800, 450, 240)))
-                  : p(1400, fl(t3(2400, 1600, 1100)));
+    const fl = (b: number): number => mx(b, mn(15e3, rd(r * 3)));
+    return h ? p(0, this._bg(h, m, tierVal(r, 12e3, 8e3, 4e3, 2e3)))
+      : si && !ib ? p(0, fl(mn(2e4, 4e3 * m)))
+      : ib ? p(r > 350 ? 220 : 140, clamp(rd(r * 0.3), 75, 220))
+      : ec > 0 ? p(0, fl(mn(16e3, (im < 3500 ? 1e3 : im < 12e3 ? 1500 : 2e3) * m)))
+      : st && im >= 1e3 ? p(1400, fl(t3(600, 350, 180)))
+      : im < 3500 ? p(r > 350 ? 280 : 180, t3(300, 160, 50))
+      : im < 12e3 ? p(1350, fl(t3(800, 450, 240)))
+      : p(1400, fl(t3(2400, 1600, 1100)));
   }
 
   computeOfflinePollDelay({ hidden: h = false, errCount: ec = 0 }: { hidden?: boolean; errCount?: number } = {}): number {
-    const bg = this.bgPollIntervalSec;
-    const m = eb(ec);
-    const d = h && bg === -1
-      ? -1
-      : h && bg > 0
-        ? Math.min(300000, bg * 1000 * m)
-        : Math.min(30000, tierVal(this.ewmaRttMs, h ? 10000 : 8000, h ? 7500 : 6000, h ? 5000 : 4500, 3000) * m);
-    return d < 0 ? d : Math.max(d, Math.min(15000, Math.round(this.ewmaRttMs * 3)));
+    return this._bg(h, eb(ec), tierVal(this[K_EW], h ? 1e4 : 8e3, h ? 7500 : 6e3, h ? 5e3 : 4500, 3e3));
   }
 
   getWheelCoalesceMs(): number {
@@ -362,55 +343,35 @@ export class AdaptiveBandwidthController {
   }
 
   getTypeBatchMs(): number {
-    return this.ewmaRttMs > 350 ? 60 : this.ewmaRttMs > 180 ? 30 : 0;
+    return this[K_EW] > 350 ? 60 : this[K_EW] > 180 ? 30 : 0;
   }
 }
 
 export const coalesceInputEvents = (raw: readonly InputEventPayload[] | null | undefined): InputEventPayload[] => {
-  const out: InputEventPayload[] = [];
-  const seen = new Set<string>();
+  const out: InputEventPayload[] = [], seen = new Set<string>(), eqT = (a: InputEventPayload, b: InputEventPayload) => (a[K_TID] || "") === (b[K_TID] || "") && (a.targetEpoch || 0) === (b.targetEpoch || 0);
   for (const e of raw || []) {
     const a = e?.action;
     if (!a) continue;
     const p = out[out.length - 1];
     if (a === "close_tab") {
-      const k = `${e.targetId || ""}:${e.targetEpoch || 0}`;
-      if (e.targetId && seen.has(k)) continue;
-      if (e.targetId) seen.add(k);
+      const id = e[K_TID], k = `${id || ""}:${e.targetEpoch || 0}`;
+      if (id && seen.has(k)) continue;
+      if (id) seen.add(k);
       out.push({ ...e });
       continue;
     }
-    if (p?.action === "switch_tab" && a === "switch_tab") {
-      p.targetId = e.targetId;
-      continue;
-    }
-    const pa =
-      p && p.action === a && (p.targetId || "") === (e.targetId || "") && (p.targetEpoch || 0) === (e.targetEpoch || 0)
-        ? a
-        : "";
+    if (p?.action === "switch_tab" && a === "switch_tab") { p[K_TID] = e[K_TID]; continue; }
+    const pa = p && p.action === a && eqT(p, e) ? a : "";
     if (pa === "mousemove" && (p.buttons || 0) === (e.buttons || 0)) {
-      p.x = e.x;
-      p.y = e.y;
-      e.modifiers !== undefined ? (p.modifiers = e.modifiers) : delete p.modifiers;
+      p.x = e.x; p.y = e.y;
+      e[K_MOD] !== undefined ? (p[K_MOD] = e[K_MOD]) : delete p[K_MOD];
       continue;
     }
-    if (pa === "type" && !p.pressEnter && !e.pressEnter) {
-      p.text = (p.text || "") + (e.text || "");
-      continue;
-    }
-    if (pa === "scroll") {
-      p.deltaX = clamp((p.deltaX || 0) + (e.deltaX || 0), -1600, 1600);
-      p.deltaY = clamp((p.deltaY || 0) + (e.deltaY || 0), -1600, 1600);
-      p.x = e.x;
-      p.y = e.y;
-      continue;
-    }
-    if (pa === "key" && p.key === e.key && (p.modifiers || 0) === (e.modifiers || 0) && e.key && REP.has(e.key)) {
+    if (pa === "type" && !p.pressEnter && !e.pressEnter) { p.text = (p.text || "") + (e.text || ""); continue; }
+    if (pa === "scroll") { const cl = (v: number) => clamp(v, -1600, 1600); p.deltaX = cl((p.deltaX || 0) + (e.deltaX || 0)); p.deltaY = cl((p.deltaY || 0) + (e.deltaY || 0)); p.x = e.x; p.y = e.y; continue; }
+    if (pa === "key" && p.key === e.key && (p[K_MOD] || 0) === (e[K_MOD] || 0) && e.key && REP.has(e.key)) {
       const n = (+(p.repeat ?? 1)) + (+(e.repeat ?? 1));
-      if (n <= 20) {
-        p.repeat = n;
-        continue;
-      }
+      if (n <= 20) { p.repeat = n; continue; }
     }
     out.push({ ...e });
   }
@@ -427,33 +388,22 @@ export const shouldApplyFrameResponse = ({
   currentEpoch: number;
   currentTargetId: string | null;
   payload: FramePayload | null | undefined;
-}): { apply: boolean; reason: "empty" | "stale_epoch" | "stale_target" | "ok" } =>
-  !d || typeof d !== "object"
-    ? { apply: false, reason: "empty" }
-    : re !== ce
-      ? { apply: false, reason: "stale_epoch" }
-      : d.activeTargetId && ct && d.activeTargetId !== ct && !d.recovered && !d.popupSwitched && !(Array.isArray(d.tabs) && !d.tabs.some((t) => t.targetId === ct))
-        ? { apply: false, reason: "stale_target" }
-        : { apply: true, reason: "ok" };
+}): { apply: boolean; reason: "empty" | "stale_epoch" | "stale_target" | "ok" } => {
+  const r = !d || typeof d !== "object" ? "empty" : re !== ce ? "stale_epoch" : d[K_AT] && ct && d[K_AT] !== ct && !d.recovered && !d.popupSwitched && !(isA(d[K_TB]) && !d[K_TB].some((t) => t[K_TID] === ct)) ? "stale_target" : "ok";
+  return { apply: r === "ok", reason: r };
+};
 
 export const applyOptimisticTabClose = (
   tabs: readonly TabInfo[] | null | undefined,
   aid: string | null,
   cid: string
 ): { tabs: TabInfo[]; activeTargetId: string | null; wasActive: boolean } => {
-  const ls = Array.isArray(tabs) ? tabs : [];
-  const i = ls.findIndex((t) => t.targetId === cid);
-  const nt = ls.filter((t) => t.targetId !== cid);
-  const wa = aid === cid;
-  return {
-    tabs: nt,
-    activeTargetId: wa || !nt.some((t) => t.targetId === aid) ? (nt[i >= 0 ? Math.min(i, nt.length - 1) : 0]?.targetId ?? null) : aid,
-    wasActive: wa,
-  };
+  const ls = isA(tabs) ? tabs : [], i = ls.findIndex((t) => t[K_TID] === cid), nt = ls.filter((t) => t[K_TID] !== cid), wa = aid === cid;
+  return { tabs: nt, activeTargetId: wa || !nt.some((t) => t[K_TID] === aid) ? (nt[i >= 0 ? mn(i, nt.length - 1) : 0]?.[K_TID] ?? null) : aid, wasActive: wa };
 };
 
 export const isNoTabsPayload = (d: FramePayload | null | undefined): boolean =>
-  !!(d?.noTabs || (Array.isArray(d?.tabs) && !d.tabs.length && !d?.activeTargetId));
+  !!(d?.noTabs || (isA(d?.[K_TB]) && !d[K_TB].length && !d?.[K_AT]));
 
 export const isSafeImageUrl = (u: unknown): u is string =>
   typeof u === "string" && /^data:image\/(?:jpeg|webp|png);base64,/i.test(u);
@@ -466,146 +416,61 @@ export const applyFramePayloadState = (
 ): boolean | null => {
   if (!d || !shouldApplyFrameResponse({ reqEpoch, currentEpoch: S.ep, currentTargetId: S.aid, payload: d }).apply) return null;
   S.on = true;
-  const srvEp = +(d.epoch as number);
+  const srvEp = +(d.epoch as number), k = "boolean";
   if (nFin(srvEp) && srvEp > 0) S.tep = srvEp;
   if (d.connectionMode) S.cm = d.connectionMode;
-  if (typeof d.paused === "boolean") {
-    const pe = +(d.pauseEpoch as number);
-    const ok = nFin(pe);
-    const cur = +S.pe || 0;
-    if (ok ? pe > cur || (!totalMs && pe >= cur) : !totalMs) {
-      if (ok) S.pe = pe;
-      S.pa = d.paused;
-      S.st = !d.paused;
-    }
+  if (typeof d[K_PA] === k) {
+    const pe = +(d.pauseEpoch as number), ok = nFin(pe), cur = +S.pe || 0;
+    if (ok ? pe > cur || (!totalMs && pe >= cur) : !totalMs) { if (ok) S.pe = pe; S.st = !(S.pa = d[K_PA]!); }
   }
   S.id = !S.pa && !!d.screencastPausedIdle;
   S.dlg = d.dialog || null;
   S.nv = false;
-  const nt = (S.nt = isNoTabsPayload(d));
-  if (nt) {
-    S.aid = S.dlg = null;
-    S.tabs = [];
-    S.pg = {};
-    S.seq = 0;
-    S.fh = "";
-    S.cr = false;
-  } else {
-    if (Array.isArray(d.tabs)) S.tabs = d.tabs;
-    if (d.activeTargetId) S.aid = d.activeTargetId;
-    if (d.page) S.pg = d.page;
-  }
-  if (d.popupSwitched) {
-    S.seq = 0;
-    S.fh = "";
-    S.cr = false;
-  }
+  const nt = (S.nt = isNoTabsPayload(d)), rst = () => { S.seq = 0; S.fh = ""; S.cr = false; };
+  if (nt) { S.aid = S.dlg = null; S[K_TB] = []; S.pg = {}; rst(); }
+  else { if (isA(d[K_TB])) S[K_TB] = d[K_TB]; if (d[K_AT]) S.aid = d[K_AT]; if (d.page) S.pg = d.page; }
+  if (d.popupSwitched) rst();
   if (d.tabsHash) S.th = d.tabsHash;
-  if (typeof d.crisp === "boolean") S.cr = d.crisp;
+  if (typeof d.crisp === k) S.cr = d.crisp!;
   if (d.format) S.fm = d.format;
-  const sp = !nt && !!d.changed && isSafeImageUrl(d.imageDataUrl);
-  if (sp) {
-    S.seq = d.seq || S.seq + 1;
-    S.fh = d.frameHash || S.fh;
-    S.by = d.imageBytes || S.by;
-    S.uc = false;
-  } else {
-    S.uc = !!(d.unchanged || !d.changed);
-    if (d.seq) S.seq = Math.max(S.seq, d.seq);
-    if (d.frameHash) S.fh = d.frameHash;
-  }
+  const sp = !nt && !!d[K_CH] && isSafeImageUrl(d.imageDataUrl);
+  if (sp) { S.seq = d[K_SQ] || S.seq + 1; S.fh = d[K_FH] || S.fh; S.by = d.imageBytes || S.by; S.uc = false; }
+  else { S.uc = !!(d.unchanged || !d[K_CH]); if (d[K_SQ]) S.seq = mx(S.seq, d[K_SQ]); if (d[K_FH]) S.fh = d[K_FH]; }
   return sp;
 };
 
 export const resolveStageAspect = (vw: number, vh: number, iw: number, ih: number): number => {
-  const va = +vw > 0 && +vh > 0 ? vw / vh : 0;
-  const ia = +iw > 0 && +ih > 0 ? iw / ih : 0;
-  const a = va ? (ia && Math.abs(ia - va) / va > 0.04 ? ia : va) : ia;
+  const va = +vw > 0 && +vh > 0 ? vw / vh : 0, ia = +iw > 0 && +ih > 0 ? iw / ih : 0;
+  const a = va ? (ia && ab(ia - va) / va > 0.04 ? ia : va) : ia;
   return a > 0 ? +a.toFixed(4) : 0;
 };
 
 export const setupRevealObservers = (o: RevealObserversOptions = {}): (() => void) => {
-  const g = globalThis as unknown as {
-    document?: ObserverDocLike;
-    window?: ObserverEventTargetLike;
-    ResizeObserver?: RevealObserversOptions["ResizeObs"];
-    IntersectionObserver?: RevealObserversOptions["IntersectionObs"];
-  };
-  const dc = o.rootDoc ?? g.document;
-  const wn = o.rootWin ?? g.window;
-  const ap = o.bridgeApp;
-  const getLF = o.getLastFetchAt || (() => 0);
-  const nw = o.clock || (() => Date.now());
-  const sm = o.staleMs ?? 900;
-  const tm = o.throttleMs ?? 250;
-  const RO = o.ResizeObs ?? g.ResizeObserver;
-  const IO = o.IntersectionObs ?? g.IntersectionObserver;
-  const offs: Array<() => void> = [];
-  const rt = dc?.documentElement;
+  const g = globalThis as any, K_AEL = "addEventListener", K_CW = "clientWidth", K_CH0 = "clientHeight";
+  const dc = o.rootDoc ?? g.document, wn = o.rootWin ?? g.window, ap = o.bridgeApp, rt = dc?.documentElement;
+  const getLF = o.getLastFetchAt || (() => 0), nw = o.clock || Date.now, sm = o.staleMs ?? 900, tm = o.throttleMs ?? 250;
+  const RO = o.ResizeObs ?? g.ResizeObserver, IO = o.IntersectionObs ?? g.IntersectionObserver, offs: Array<() => void> = [];
   let lt = -1e15;
-  const trig = (): boolean => {
-    const t = nw();
-    return t - lt >= tm && ((lt = t), o.onReveal?.(), true);
+  const trig = (): boolean => { const t = nw(); return t - lt >= tm && ((lt = t), o.onReveal?.(), true); };
+  const add = (tg: any, ev: string, fn: (...args: any[]) => void, op?: AddEventListenerOptions | boolean): void => {
+    if (tg?.[K_AEL]) { tg[K_AEL](ev, fn, op); offs.push(() => tg.removeEventListener?.(ev, fn, op)); }
   };
-  const add = (
-    tg: ObserverEventTargetLike | null | undefined,
-    ev: string,
-    fn: (...args: any[]) => void,
-    op?: AddEventListenerOptions | boolean
-  ): void => {
-    if (tg?.addEventListener) {
-      tg.addEventListener(ev, fn, op);
-      offs.push(() => tg.removeEventListener?.(ev, fn, op));
-    }
-  };
-  const obs = (ob: { observe(el: unknown): void; disconnect?(): void }): void => {
-    ob.observe(rt);
-    offs.push(() => ob.disconnect?.());
-  };
+  const obs = (ob: { observe(el: unknown): void; disconnect?(): void }): void => { ob.observe(rt); offs.push(() => ob.disconnect?.()); };
   if (RO && rt) {
-    let wc = !((rt.clientWidth || 0) > 0 && (rt.clientHeight || 0) > 0);
-    obs(
-      new RO((es) => {
-        const r = es?.[0]?.contentRect;
-        const v = (r ? r.width : rt.clientWidth || 0) > 0 && (r ? r.height : rt.clientHeight || 0) > 0;
-        if (wc && v) trig();
-        wc = !v;
-      })
-    );
+    const pos = (r?: { width: number; height: number }) => (r ? r.width : rt[K_CW] || 0) > 0 && (r ? r.height : rt[K_CH0] || 0) > 0;
+    let wc = !pos();
+    obs(new RO((es: any[]) => { const v = pos(es?.[0]?.contentRect); if (wc && v) trig(); wc = !v; }));
   }
   if (IO && rt) {
     let wv = false;
-    obs(
-      new IO(
-        (es) => {
-          for (const e of es || []) {
-            const v = !!e?.isIntersecting;
-            if (!wv && v) trig();
-            wv = v;
-          }
-        },
-        { threshold: 0 }
-      )
-    );
+    obs(new IO((es: any[]) => { for (const e of es || []) { const v = !!e?.isIntersecting; if (!wv && v) trig(); wv = v; } }, { threshold: 0 }));
   }
   add(dc, "visibilitychange", () => {
-    const isHidden = dc?.visibilityState === "hidden" || (dc as { hidden?: boolean } | null)?.hidden === true;
-    if (isHidden) o.onHide?.();
-    else if (dc?.visibilityState === "visible" || (dc as { hidden?: boolean } | null)?.hidden === false) trig();
+    const v = dc?.visibilityState, h = (dc as any)?.hidden;
+    if (v === "hidden" || h === true) o.onHide?.(); else if (v === "visible" || h === false) trig();
   });
-  add(wn, "focus", trig);
-  add(wn, "pageshow", trig);
+  add(wn, "focus", trig); add(wn, "pageshow", trig);
   add(rt, "pointerenter", () => nw() - getLF() > sm && trig(), { passive: true });
-  if (ap) {
-    const pv = ap.onhostcontextchanged || null;
-    ap.onhostcontextchanged = (c, m) => (pv?.(c, m), (c?.containerDimensions || c?.displayMode) && trig());
-    offs.push(() => (ap.onhostcontextchanged = pv));
-  }
-  return () => {
-    while (offs.length) {
-      try {
-        offs.pop()?.();
-      } catch {}
-    }
-  };
+  if (ap) { const pv = ap.onhostcontextchanged || null; ap.onhostcontextchanged = (c, m) => (pv?.(c, m), (c?.containerDimensions || c?.displayMode) && trig()); offs.push(() => (ap.onhostcontextchanged = pv)); }
+  return () => { while (offs.length) try { offs.pop()?.(); } catch {} };
 };

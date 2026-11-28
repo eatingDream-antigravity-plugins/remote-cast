@@ -860,12 +860,41 @@ impl McpServer {
                 boot_meta = BootSnapshot::from_relay(meta).map(|bd| bd.metadata);
             }
         }
-        let html = self
+        let raw_html = self
             .html_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .render_metadata(&self.panel_html_path, boot_meta.as_ref())
             .map_err(|e| (-32603, e))?;
+        let eff_light = self.settings.as_ref().is_some_and(|store| {
+            let cfg = store.current();
+            let eff = if cfg.theme == "system" {
+                cfg.last_host_theme.as_str()
+            } else {
+                cfg.theme.as_str()
+            };
+            eff == "light"
+        });
+        let html = if eff_light {
+            raw_html
+                .replacen(
+                    "style=\"background:#0B0D12;color-scheme:dark\"",
+                    "data-theme=\"light\" style=\"background:#F8FAFD;color-scheme:light\"",
+                    1,
+                )
+                .replacen(
+                    "<meta name=\"color-scheme\" content=\"dark\">",
+                    "<meta name=\"color-scheme\" content=\"light\">",
+                    1,
+                )
+                .replacen(
+                    "<body style=\"background:#0B0D12\">",
+                    "<body style=\"background:#F8FAFD\">",
+                    1,
+                )
+        } else {
+            raw_html
+        };
 
         Ok(json!({
             "contents": [{
@@ -1991,6 +2020,50 @@ mod tests {
             .unwrap();
         assert_eq!(stage["result"]["structuredContent"]["remotePort"], 9333);
         assert_eq!(relay.calls.load(Ordering::SeqCst), 2);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resources_read_rewrites_byte0_ssr_theme() {
+        let dir = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("chrome-stream-ssr-theme-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let html_path = dir.join("panel.html");
+        fs::write(
+            &html_path,
+            "<!doctype html><html lang=\"en\" style=\"background:#0B0D12;color-scheme:dark\"><head><meta name=\"color-scheme\" content=\"dark\"></head><body style=\"background:#0B0D12\"><script type=\"module\">/*__CHROME_STREAM_BOOT__*/</script></body></html>",
+        )
+        .unwrap();
+
+        let settings = Some(SettingsStore::new(dir.clone()));
+        let srv = McpServer::with_settings(dummy_relay(), html_path, settings);
+        initialize(&srv, apps_capabilities());
+
+        let cfg = srv
+            .handle_message(&json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": { "name": "chrome_stream_config", "arguments": { "action": "update", "patch": { "theme": "system", "lastHostTheme": "light" } } }
+            }))
+            .unwrap();
+        assert_eq!(
+            cfg["result"]["structuredContent"]["settings"]["lastHostTheme"],
+            "light"
+        );
+
+        let light_res = srv
+            .handle_message(&json!({
+                "jsonrpc": "2.0", "id": 3, "method": "resources/read", "params": { "uri": STAGE_URI }
+            }))
+            .unwrap();
+        let light_html = light_res["result"]["contents"][0]["text"].as_str().unwrap();
+        assert!(light_html
+            .contains("data-theme=\"light\" style=\"background:#F8FAFD;color-scheme:light\""));
+        assert!(light_html.contains("<meta name=\"color-scheme\" content=\"light\">"));
+        assert!(light_html.contains("<body style=\"background:#F8FAFD\">"));
 
         let _ = fs::remove_dir_all(&dir);
     }

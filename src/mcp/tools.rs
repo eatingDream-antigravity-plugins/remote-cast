@@ -226,7 +226,9 @@ pub fn tool_definitions(include_app_only: bool) -> Value {
                             "newTabUrl": { "type": ["string", "null"] },
                             "portFile": { "type": ["string", "null"] },
                             "userDataDir": { "type": ["string", "null"] },
-                            "wheelCoalesceMs": { "type": ["integer", "null"], "minimum": 20, "maximum": 500 }
+                            "wheelCoalesceMs": { "type": ["integer", "null"], "minimum": 20, "maximum": 500 },
+                            "theme": { "type": ["string", "null"], "enum": ["system", "light", "dark", null] },
+                            "lastHostTheme": { "type": ["string", "null"], "enum": ["light", "dark", null] }
                         },
                         "additionalProperties": false
                     }
