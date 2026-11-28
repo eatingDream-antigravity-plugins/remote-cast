@@ -420,6 +420,11 @@ impl SettingsStore {
             Ok(None) => Map::new(),
             Err(err) => return Err(format!("Could not inspect settings.json: {err}")),
         };
+        if let Some(legacy_ht) = merged.remove("last_host_theme") {
+            merged
+                .entry("lastHostTheme".to_string())
+                .or_insert(legacy_ht);
+        }
 
         const ALLOWED_KEYS: &[&str] = &[
             "lang",

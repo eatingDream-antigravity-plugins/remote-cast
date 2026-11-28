@@ -178,7 +178,7 @@ const dropIn = (): void => { qIn = []; cTm(inT); inT = 0; dropTimers(); };
 const evIn = (action: string, o: Record<string, unknown> = {}, imm = 1, tid = S.aid, tep = S.tep): void => pushIn({ [K_AC]: action, ...o }, imm, tid, tep);
 const kyIn = (key: string, modifiers?: number, imm: number | boolean = 1): void => evIn("key", modifiers ? { key, [K_MOD]: modifiers } : { key }, imm ? 1 : 0);
 const isRec = (d: FramePayload | null | undefined): boolean => Boolean(d?.[K_RC] || isTargetErrorText(d?.[K_ERR]));
-const modsOf = (e: { altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }): number => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+const modsOf = (e: { altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }): number => (+!!e.altKey) | (+!!e.ctrlKey << 1) | (+!!e.metaKey << 2) | (+!!e.shiftKey << 3);
 const focusSt = (): void => (D.si || D.st)[K_FC]({ preventScroll: true });
 const toast = (m: string): void => { if (m) { tx(D.ts, m); tg(D.ts, "on", 1); cTm(tT); tT = sTm(() => tg(D.ts, "on", 0), 1600); } };
 const setPf = (d: FramePayload | null | undefined): void => {
@@ -363,18 +363,23 @@ const applyLangUi = (): void => {
   renderGuide(); uOff(); syncBnr(); syncPauseUi(); syncCfgUi();
 };
 const setSS = (m: string, c = ""): void => { tx(D.ss, m); D.ss[K_CNM] = c; };
-const saveCfg = async (patch: Record<string, unknown>, quiet?: number): Promise<void> => {
-  putCfg(patch as Partial<CfgState>);
+const saveCfg = async (patch: Record<string, unknown>, quiet?: number): Promise<boolean> => {
+  if (!quiet) putCfg(patch as Partial<CfgState>);
   if ("lang" in patch) { ls(LS_LG, patch.lang === K_AU ? "" : String(patch.lang)); chkLg(); }
   if (K_DQ in patch && typeof patch[K_DQ] === "string" && QK[K_INC](patch[K_DQ])) setQ(patch[K_DQ], 1);
-  if (!canCall()) return;
+  if (!canCall()) return false;
   const failSv = () => { saveT = 0; setSS(T.svf, "erc"); };
   if (!quiet) { setSS(T.sv); cTm(saveT); saveT = 1; }
   try {
     const r = await rpcSc("config", { [K_AC]: "update", patch });
-    if (quiet) { if (r?.ok) syncCfg(r, 1); }
-    else r?.ok ? (syncCfg(r, 1), setSS(T.svd, "hd"), (saveT = sTm(() => { saveT = 0; setSS(""); }, 1800))) : failSv();
+    if (r?.ok) {
+      syncCfg(r, 1);
+      if (!quiet) { setSS(T.svd, "hd"); saveT = sTm(() => { saveT = 0; setSS(""); }, 1800); }
+      return true;
+    }
+    if (!quiet) failSv();
   } catch { if (!quiet) failSv(); }
+  return false;
 };
 
 const mkEmblem = (dotId: string, big: number): HTMLElement => h(big ? "s.e.el" : "s.e", 0, ico(0, big ? 18 : 13), [`s.ed#${dotId}`]);
@@ -438,7 +443,7 @@ const mount = (): void => {
       [".pr", 0, ["s.pl", ".i=st"], ["s#ss"]],
       [".mn.erc#se!"],
       [".pr", 0, ["s", ".i=th"], h(".l", "R=radiogroup;.a=th", ...THS.map((v, i) => {
-        const b = h("b", `R=radio;.th=${v};.i=th${i};@c=${thP === v}`); ck(b, () => { thLk = 1; thP = v; app[K_STP]?.(v); syncCfgUi(); void saveCfg({ theme: v }); });
+        const b = h("b", `R=radio;.th=${v};.i=th${i};@c=${thP === v}`); ck(b, () => { const g = ++thLk; thP = v; app[K_STP]?.(v); syncCfgUi(); void saveCfg({ theme: v }).then(() => { if (thLk === g) thLk = 0; }); });
         thBtns.push(b); return b;
       }))],
       ...CFGS.map(([id, lk, , , ops]): HSpec => [".pr", 0, ["s", `.i=${lk}`], [`l.sel#${id}`, `.a=${lk}`, ...ops[K_SP0]("|").map((o): HSpec => { const [v, tk] = o[K_SP0](":"); return ["option", `value=${v};${tk[0] === "=" ? `t=${tk.slice(1)}` : `.i=${tk}`}`]; })]]),
@@ -477,7 +482,7 @@ const mount = (): void => {
     sb ? ((isCn = K_RS), setErr(), clrTm(0), uOff()) : ((isPa = 1), syncPauseUi(), want && clrTm(1));
     try {
       const d = await sendIn([{ [K_AC]: want ? "pause" : K_RS }]);
-      if (chkConn(d)) return clrSb();
+      if (chkConn(d)) { if (sb) { clrSb(); schedOffP(); } return; }
       if (!d || d.ok === false) return fail(d);
       bumpPe(d); pollSeq++;
       sb ? clrSb() : (isPa = 0);
@@ -783,7 +788,7 @@ on(doc, K_KD, (e: KeyboardEvent) => {
   else if (e.key === K_ES && (popOn || setOn)) { pd(e); popOn ? (setPop(false), D.bq[K_FC]()) : (setSet(false), (S.on && !isSb ? D.bg : D.bg0)[K_FC]()); }
 });
 const syncHostCtx = (ctx: HostContext | null | undefined, fullCtx?: HostContext): void => { hostCtx = fullCtx || ctx || null; chkLg(hostCtx); };
-const persistHt = (ht: "light" | "dark"): void => { if (ht !== lht) { lht = ht; if (canCall()) void saveCfg({ [K_LHT]: ht }, 1); } };
+const persistHt = (ht: "light" | "dark"): void => { if (canCall() && ht !== lht) void saveCfg({ [K_LHT]: ht }, 1).then((ok) => { if (ok) lht = ht; }); };
 app.onhostthemechanged = persistHt;
 const bootPoll = (): void => { started = 1; lastForceAt = nowMs(); isSb ? schedOffP() : S.on && !S.pa && (freshBoot ? liveSched() : void poll(0)); };
 const onResult = (r: { [K_SC]?: unknown }): void => {
