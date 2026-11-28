@@ -411,6 +411,14 @@ describe("Remote Cast panel kit invariants & Wave 2 regressions", () => {
     try {
       await new Promise((r) => setTimeout(r, 10));
       assert.equal(h.els.get("mn")!.hidden, false, "personal mode shows neutral re-auth note in popover");
+      const initFrame = h.posted.filter((m) => m.params?.name === "chrome_stream_frame").pop();
+      if (initFrame) {
+        h.msgHandler({
+          source: h.win.parent,
+          data: { jsonrpc: "2.0", id: initFrame.id, result: { structuredContent: { connected: true, activeTargetId: "t1", changed: false, unchanged: true } } },
+        });
+        await new Promise((r) => setTimeout(r, 5));
+      }
 
       // Open Settings drawer & change idlePauseSec -> 30
       h.els.get("bg")!.listeners.get("click")![0]({ stopPropagation() {} });
@@ -588,6 +596,14 @@ describe("Remote Cast panel kit invariants & Wave 2 regressions", () => {
     try {
       await new Promise((r) => setTimeout(r, 10));
       assert.equal(h.els.get("vn")!.hidden, false);
+      const initFrame = h.posted.filter((m) => m.params?.name === "chrome_stream_frame").pop();
+      if (initFrame) {
+        h.msgHandler({
+          source: h.win.parent,
+          data: { jsonrpc: "2.0", id: initFrame.id, result: { structuredContent: { connected: true, activeTargetId: "t1", changed: false, unchanged: true } } },
+        });
+        await new Promise((r) => setTimeout(r, 5));
+      }
 
       // Empty-tab #n3 sends standby and #n4 sends revoke
       h.els.get("n3")!.listeners.get("click")![0]();
@@ -837,6 +853,155 @@ describe("Remote Cast panel kit invariants & Wave 2 regressions", () => {
       assert.equal(ooo.els.get("ui")!.value, "https://new.test");
     } finally {
       ooo.cleanup();
+    }
+  });
+
+  it("serializes all tools/call to maxInFlight === 1, prioritizes user calls, caps waitMs on high RTT, retries busy once, and localizes ZH", async () => {
+    assert.equal(mapBridgeErrorKey("Too many concurrent tool calls"), "b_busy");
+    assert.equal(mapBridgeErrorKey("Server busy"), "b_busy");
+    assert.equal(mapBridgeErrorKey("Relay busy: too many concurrent requests"), "b_busy");
+
+    // 1. Concurrent frame poll + wheel/click input + config + visibility resume => maxInFlight === 1, priority first, 0 errors
+    const h = bootPanel(
+      {
+        connected: true,
+        connectionMode: "personal",
+        rttMs: 220,
+        tabs: [{ targetId: "t1", title: "Home", url: "https://a.test" }],
+        activeTargetId: "t1",
+        epoch: 1,
+        settings: { lang: "en", defaultQuality: "auto", defaultConnectMode: "auto", bgPollIntervalSec: 0, idlePauseSec: 12 },
+      },
+      { deferConnect: true }
+    );
+    try {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      let concurrencyErrors = 0;
+      const order: string[] = [];
+      const queue: Array<{ id: number; name: string; args: Record<string, any> }> = [];
+      const origPost = h.win.parent.postMessage.bind(h.win.parent);
+      h.win.parent.postMessage = (msg: PostedMessage) => {
+        origPost(msg);
+        if (msg.method === "tools/call" && typeof msg.id === "number") {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          const name = msg.params?.name || "";
+          order.push(name);
+          if (inFlight > 1) {
+            concurrencyErrors += 1;
+            inFlight -= 1;
+            h.msgHandler({
+              source: h.win.parent,
+              data: { jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "Too many concurrent tool calls" } },
+            });
+            return;
+          }
+          queue.push({ id: msg.id, name, args: msg.params?.arguments || {} });
+        }
+      };
+
+      const replyNext = (payload: Record<string, unknown> = { ok: true, connected: true, activeTargetId: "t1", changed: false, unchanged: true }) => {
+        const req = queue.shift();
+        if (!req) return null;
+        inFlight -= 1;
+        h.msgHandler({
+          source: h.win.parent,
+          data: { jsonrpc: "2.0", id: req.id, result: { structuredContent: payload } },
+        });
+        return req;
+      };
+
+      h.resolveConnect();
+      await new Promise((r) => setTimeout(r, 15));
+      assert.equal(queue.length, 1);
+      assert.equal(queue[0]!.name, "chrome_stream_frame");
+      assert.equal(queue[0]!.args.waitMs, 0, "waitMs must be capped to 0 when ewmaRttMs > 120");
+
+      // While frame #1 is in flight, fire wheel scroll, click, config change, and visibility resume
+      const vc = h.els.get("vc")!;
+      vc.listeners.get("wheel")![0]({ deltaX: 0, deltaY: 120, deltaMode: 0, clientX: 80, clientY: 90, preventDefault() {} });
+      vc.listeners.get("mousedown")![0]({ button: 0, clientX: 80, clientY: 90, detail: 1, preventDefault() {} });
+      h.winListeners.get("mouseup")!.forEach((fn) => fn({ button: 0, clientX: 80, clientY: 90, detail: 1 }));
+      h.els.get("si2")!.value = "30";
+      h.els.get("si2")!.listeners.get("change")![0]();
+      h.doc.visibilityState = "hidden";
+      h.doc.listeners.get("visibilitychange")?.forEach((fn) => fn({}));
+      h.setNow(11_000);
+      h.doc.visibilityState = "visible";
+      h.doc.listeners.get("visibilitychange")?.forEach((fn) => fn({}));
+
+      await new Promise((r) => setTimeout(r, 95));
+      assert.equal(inFlight, 1, "must hold strictly 1 RPC in flight while user inputs & visibility resume queue");
+      assert.equal(maxInFlight, 1);
+      assert.equal(concurrencyErrors, 0);
+
+      // Drain frame #1 and every subsequent serialized request
+      for (let i = 0; i < 12 && queue.length > 0; i++) {
+        const curName: string = queue[0]!.name;
+        replyNext(
+          curName === "chrome_stream_config"
+            ? { ok: true, settingsGen: 2, settings: { idlePauseSec: 30 } }
+            : { ok: true, connected: true, activeTargetId: "t1", changed: false, unchanged: true }
+        );
+        await new Promise((r) => setTimeout(r, 25));
+      }
+
+      assert.equal(maxInFlight, 1, "maxInFlight must stay === 1 across concurrent frame + scroll/click + config + visibility");
+      assert.equal(concurrencyErrors, 0, "0 Too many concurrent tool calls errors expected");
+      assert.equal(h.els.get("bn")!.hidden, true, "error banner must stay hidden (0 surfaced errors)");
+      const firstInputIdx = order.indexOf("chrome_stream_input");
+      const firstConfigIdx = order.indexOf("chrome_stream_config");
+      const secondFrameIdx = order.indexOf("chrome_stream_frame", 1);
+      assert.ok(firstInputIdx > 0 && firstConfigIdx > 0, "expected priority input & config calls");
+      if (secondFrameIdx !== -1) {
+        assert.ok(firstInputIdx < secondFrameIdx && firstConfigIdx < secondFrameIdx, "priority calls must run ahead of queued frame polls");
+      }
+    } finally {
+      h.cleanup();
+    }
+
+    // 2. Transient busy error retries once silently after 160ms; persistent busy error localizes cleanly in ZH
+    const zh = bootPanel({ connected: false }, { navLang: "zh-CN", deferConnect: true });
+    try {
+      const origPost = zh.win.parent.postMessage.bind(zh.win.parent);
+      let attempt = 0;
+      let failForever = false;
+      zh.win.parent.postMessage = (msg: PostedMessage) => {
+        origPost(msg);
+        if (msg.method === "tools/call" && typeof msg.id === "number") {
+          attempt += 1;
+          if (failForever || attempt === 1) {
+            zh.msgHandler({
+              source: zh.win.parent,
+              data: { jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "Too many concurrent tool calls" } },
+            });
+          } else {
+            zh.msgHandler({
+              source: zh.win.parent,
+              data: { jsonrpc: "2.0", id: msg.id, result: { structuredContent: { connected: false, portFile: { valid: true, port: 9222 } } } },
+            });
+          }
+        }
+      };
+
+      zh.resolveConnect();
+      await new Promise((r) => setTimeout(r, 10));
+      zh.setNow(15_000);
+      zh.winListeners.get("focus")?.forEach((fn) => fn({}));
+      await new Promise((r) => setTimeout(r, 250));
+      assert.equal(attempt, 2, "transient busy error must wait 160ms and retry once silently");
+      assert.equal(zh.els.get("oe")!.hidden, true, "successful retry must surface zero error banner");
+
+      // Persistent busy failure on Connect button -> localizes to ZH b_busy with zero raw English in #om
+      failForever = true;
+      zh.els.get("ob")!.listeners.get("click")![0]();
+      await new Promise((r) => setTimeout(r, 250));
+      assert.equal(attempt, 4);
+      assert.equal(zh.els.get("om")!.textContent, I18N["zh-CN"].b_busy);
+      assert.ok(!zh.els.get("om")!.textContent.includes("Too many concurrent"), "must not leak raw English in ZH banner");
+    } finally {
+      zh.cleanup();
     }
   });
 });

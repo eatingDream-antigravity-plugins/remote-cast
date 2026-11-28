@@ -975,6 +975,14 @@ describe("Remote Cast panel net-policy.ts", () => {
       });
       await new Promise((r) => setTimeout(r, 30));
       assert.equal(els.get("sm")!.textContent, "Separate Chrome", "popover mode must reflect remote connectionMode");
+      const prePausePoll = posted.filter((m) => m.method === "tools/call" && m.params?.name === "chrome_stream_frame").pop();
+      if (prePausePoll) {
+        msgHandler2!({
+          source: win.parent,
+          data: { jsonrpc: "2.0", id: prePausePoll.id, result: { structuredContent: { connected: true, activeTargetId: "t1", changed: false, unchanged: true } } },
+        });
+        await new Promise((r) => setTimeout(r, 5));
+      }
 
       // Standby (#bp) awaits server confirmation; error MUST NOT flip UI to paused!
       els.get("bp")!.listeners.get("click")?.[0]?.();
@@ -1063,6 +1071,14 @@ describe("Remote Cast panel net-policy.ts", () => {
       await new Promise((r) => setTimeout(r, 140));
       const inputCountAfterPaste = posted.filter((m) => m.method === "tools/call" && m.params?.name === "chrome_stream_input").length;
       assert.equal(inputCountAfterPaste, inputCountBeforePaste, "delayed Paste fallback must be dropped when popupSwitched mutates target/epoch");
+      const preStandbyPoll = posted.filter((m) => m.method === "tools/call" && m.params?.name === "chrome_stream_frame").pop();
+      if (preStandbyPoll && preStandbyPoll.id !== lastCall.id) {
+        msgHandler2!({
+          source: win.parent,
+          data: { jsonrpc: "2.0", id: preStandbyPoll.id, result: { structuredContent: { connected: true, activeTargetId: "t-popup", changed: false, unchanged: true } } },
+        });
+        await new Promise((r) => setTimeout(r, 5));
+      }
 
       // Primary Standby (#dc): unconfirmed error MUST keep panel online & banner sticky across live poll
       els.get("dc")!.listeners.get("click")?.[0]?.();

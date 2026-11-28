@@ -4,7 +4,7 @@ export type QualityMode = "auto" | QualityTier;
 export type PanelLang = "en" | "zh-CN";
 export type RttBand = "ok" | "wn" | "er";
 export type NetworkGrade = "good" | "mid" | "weak";
-export type BridgeErrorKey = "b_closed" | "b_timeout" | "b_init" | "b_notools" | "b_generic";
+export type BridgeErrorKey = "b_closed" | "b_timeout" | "b_init" | "b_notools" | "b_busy" | "b_generic";
 
 export interface TabInfo {
   targetId: string;
@@ -203,6 +203,9 @@ export const isTargetErrorText = (m: unknown): boolean =>
     String(m || "")
   );
 
+export const isBusyErrorText = (m: unknown): boolean =>
+  /too many concurrent|server busy|relay busy/i.test(String(m || ""));
+
 export const rttBand = (ms: unknown): RttBand => {
   const n = +(ms as number);
   return !nFin(n) || n <= 0 ? "ok" : n >= 200 ? "er" : n >= 80 ? "wn" : "ok";
@@ -235,7 +238,9 @@ export const mapBridgeErrorKey = (raw: unknown): BridgeErrorKey => {
         ? "b_init"
         : /no servertools|no tool access|servertools/i.test(s)
           ? "b_notools"
-          : "b_generic";
+          : isBusyErrorText(s)
+            ? "b_busy"
+            : "b_generic";
 };
 
 export class AdaptiveBandwidthController {
