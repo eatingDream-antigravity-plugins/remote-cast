@@ -90,6 +90,7 @@ export interface BridgeBodyTarget {
 export interface BridgeDocument {
   documentElement?: BridgeRootElement | null;
   body?: BridgeBodyTarget | null;
+  defaultView?: BridgeWindowLike | null;
   head?: {
     appendChild(node: never): unknown;
   } | null;
@@ -347,13 +348,12 @@ export function measureNetRttMs(totalMs: number, serverMs = 0): number {
   return Math.max(0, Math.round(total - srv));
 }
 
-export function applyDocumentTheme(
-  theme: unknown,
-  doc: BridgeDocLike | null = typeof document !== "undefined" ? document : null
-): void {
-  if ((theme !== "light" && theme !== "dark") || !doc?.documentElement) return;
+const desiredThemeByDoc = new WeakMap<object, DocumentTheme>();
+
+function commitDocumentTheme(theme: DocumentTheme, doc: BridgeDocLike): void {
   const el = doc.documentElement;
-  const bg = `var(${BG_VAR},${theme === "light" ? "#F8FAFD" : "#0B0D12"})`;
+  if (!el) return;
+  const bg = theme === "light" ? "#F8FAFD" : "#0B0D12";
   if (el.getAttribute("data-theme") !== theme) el.setAttribute("data-theme", theme);
   if (el.style) {
     el.style.colorScheme = theme;
@@ -362,6 +362,34 @@ export function applyDocumentTheme(
   if (doc.body?.style) doc.body.style.backgroundColor = bg;
   const meta = doc.querySelector?.('meta[name="color-scheme"]');
   if (meta && meta.getAttribute("content") !== theme) meta.setAttribute("content", theme);
+}
+
+export function applyDocumentTheme(
+  theme: unknown,
+  doc: BridgeDocLike | null = typeof document !== "undefined" ? document : null,
+  win: BridgeWindowLike | null = typeof window !== "undefined" ? window : null
+): void {
+  if ((theme !== "light" && theme !== "dark") || !doc?.documentElement) return;
+  desiredThemeByDoc.set(doc as object, theme);
+  if (theme === "light" && doc.querySelector?.(".boot-frame")) {
+    const view =
+      win ??
+      (doc as BridgeDocument).defaultView ??
+      (typeof window !== "undefined" ? window : null);
+    const schedule =
+      typeof view?.requestAnimationFrame === "function"
+        ? (cb: () => void) => view.requestAnimationFrame!(cb)
+        : typeof requestAnimationFrame === "function"
+          ? (cb: () => void) => requestAnimationFrame(cb)
+          : (cb: () => void) => setTimeout(cb, 0);
+    schedule(() => {
+      if (desiredThemeByDoc.get(doc as object) === "light") {
+        commitDocumentTheme("light", doc);
+      }
+    });
+    return;
+  }
+  commitDocumentTheme(theme, doc);
 }
 
 export function applyHostStyleVariables(
@@ -375,7 +403,7 @@ export function applyHostStyleVariables(
     if (!val) continue;
     if (k === BG_VAR) {
       const parsed = parseColorAlphaLum(val);
-      if (!parsed || parsed.a < 0.9) continue;
+      if (!parsed || parsed.a < 0.9 || parsed.lum === null) continue;
     }
     target.style.setProperty(k, val);
   }
@@ -398,7 +426,8 @@ export function applyHostFonts(
 
 export function applyHostContext(
   ctx: HostContext | null | undefined,
-  doc: BridgeDocLike | null = typeof document !== "undefined" ? document : null
+  doc: BridgeDocLike | null = typeof document !== "undefined" ? document : null,
+  win: BridgeWindowLike | null = typeof window !== "undefined" ? window : null
 ): DocumentTheme | null {
   if (!ctx || typeof ctx !== "object") return null;
   const styles = ctx.styles;
@@ -423,7 +452,7 @@ export function applyHostContext(
     const lum = parseColorLum(bgVar);
     if (lum !== null) theme = lum < 0.45 ? "dark" : "light";
   }
-  if (theme) applyDocumentTheme(theme, doc);
+  if (theme) applyDocumentTheme(theme, doc, win);
   return theme;
 }
 
@@ -604,7 +633,7 @@ export function App(
         if (key === "host-context-changed") {
           try {
             hostCtx = mergeHostContext(hostCtx, params as Partial<HostContext>);
-            applyHostContext(hostCtx, doc);
+            applyHostContext(hostCtx, doc, win);
             if (typeof self.onhostcontextchanged === "function") {
               await self.onhostcontextchanged(params as Partial<HostContext>, hostCtx);
             }
@@ -830,7 +859,7 @@ export function App(
           hostCaps = res.hostCapabilities || {};
           hostCtx = res.hostContext || null;
           initOk = true;
-          applyHostContext(hostCtx, doc);
+          applyHostContext(hostCtx, doc, win);
           notification(`${UI_NOTIF_PREFIX}initialized`);
           startAutoResizeIfInline();
           return;

@@ -15,9 +15,9 @@ type HSpec = readonly [string, (string | 0)?, ...HChild[]];
 type BootPayload = FramePayload & { locale?: string; qualityApplied?: string; appVersion?: string; relayVersion?: string };
 type CfgState = { lang: string; defaultQuality: string; defaultConnectMode: string; bgPollIntervalSec: number; idlePauseSec: number; wheelCoalesceMs?: number; newTabUrl?: string };
 
-const doc = document;
+const doc = document, M = Math, N = navigator, LS_LG = "chrome_stream_lang";
 const b0: BootPayload = (globalThis as { __CHROME_STREAM_BOOT__?: BootPayload }).__CHROME_STREAM_BOOT__ || {};
-const fin = Number.isFinite, rnd = Math.round, isA = Array.isArray;
+const fin = Number.isFinite, rnd = M.round, isA = Array.isArray;
 const on = (n: EventTarget | null | undefined, ev: string, fn: (e: any) => void, o?: AddEventListenerOptions | boolean): void => { n?.addEventListener(ev, fn, o); };
 const ck = (n: EventTarget | null | undefined, fn: (e: any) => void): void => on(n, "click", fn);
 const sa = (n: Element | null | undefined, k: string, v: string | number | boolean): void => { n?.setAttribute(k, String(v)); };
@@ -25,9 +25,9 @@ const pd = (e: { preventDefault(): void }): void => e.preventDefault();
 const tx = (n: { textContent: string | null }, v: string): void => { if (n.textContent !== v) n.textContent = v; };
 const hd = (n: { hidden: boolean }, v: unknown): boolean => (n.hidden = !!v);
 const tg = (n: Element, c: string, v: unknown): boolean => n.classList.toggle(c, !!v);
-const pNow = (): number => performance.now(), nowMs = (): number => Date.now(), cl = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+const pNow = (): number => performance.now(), nowMs = (): number => Date.now(), cl = (v: number, lo: number, hi: number): number => M.max(lo, M.min(hi, v));
 const sTm = (f: () => void, m?: number): Tm => globalThis.setTimeout(f, m), cTm = (i: Tm): void => globalThis.clearTimeout(i as ReturnType<typeof setTimeout>), hid = (): boolean => doc.visibilityState === "hidden";
-const isMac = /mac/i.test(navigator?.platform || navigator?.userAgent || "");
+const isMac = /mac/i.test(N?.platform || N?.userAgent || "");
 const root = doc.getElementById("app") as HTMLElement, app = App({ name: "Remote Cast", version: b0.appVersion || b0.relayVersion || "0.1.0" }, {}), net = new AdaptiveBandwidthController("auto");
 const KEYS = new Set<string>([...REP, "Enter", "Escape", "Home", "End", "Space"]);
 const QK = "auto ultra low medium high".split(" "), IK = "Enter Escape Tab Backspace Undo Copy Paste SelectAll".split(" ");
@@ -105,7 +105,7 @@ let cfg: CfgState = { lang: "auto", defaultQuality: "auto", defaultConnectMode: 
 let cfgPath = boot.settingsPath || "settings.json", cfgGen = +(boot.settingsGen ?? 0) || 0, cfgErr = boot.settingsError || "", hostCtx: HostContext | null = null;
 
 const pickLg = (c: HostContext | null = hostCtx): PanelLang =>
-  resolvePanelLang({ saved: cfg.lang && cfg.lang !== "auto" ? cfg.lang : ls("chrome_stream_lang"), hostLocale: (c?.locale || c?.language || "") as string, navLang: navigator?.language || "", bootLocale: boot.locale || b0.locale || "" });
+  resolvePanelLang({ saved: cfg.lang && cfg.lang !== "auto" ? cfg.lang : ls(LS_LG), hostLocale: (c?.locale || c?.language || "") as string, navLang: N?.language || "", bootLocale: boot.locale || b0.locale || "" });
 let curLg: PanelLang = pickLg(), T: I18nDict = I18N[curLg] || I18N.en, portF: PortFileInfo | null = boot.portFile || null, tabSig = "", qApp = boot.qualityApplied || "low";
 let errCode: string | null = null, errRaw: string | null = null, errDet = 0, cErr = false, hadTabs = S.tabs.length > 0;
 let isCn: string | 0 = 0, isDisc = 0, isPa = 0, isSw = 0, isSb = !!(boot.connected && (boot.standby === true || (boot.paused === true && boot.standby !== false))), qMode: QualityMode = (QK.includes(cfg.defaultQuality) ? cfg.defaultQuality : "auto") as QualityMode, lastMode = "personal", dlgKey = "", imeOn = false, popOn = false, setOn = false;
@@ -179,6 +179,7 @@ const syncTabList = (d: FramePayload | null | undefined): void => {
   }
 };
 const clsP = (): void => { if (popOn) setPop(false); if (setOn) setSet(false); };
+const bumpPe = (d: FramePayload): void => { const pe = +(d.pauseEpoch ?? NaN); if (fin(pe) && pe >= S.pe) S.pe = pe; };
 const syncPe = (d: FramePayload | null | undefined, fb?: boolean): number => {
   const pe = +(d?.pauseEpoch ?? NaN), g = fin(pe) && pe > S.pe; if (g) S.pe = pe;
   return typeof d?.paused === "boolean" && (g || fb) ? ((S.st = !(S.pa = d.paused)), g ? 1 : 0) : 0;
@@ -342,7 +343,7 @@ const applyLangUi = (): void => {
 const setSS = (m: string, c = ""): void => { tx(D.ss, m); D.ss.className = c; };
 const saveCfg = async (patch: Record<string, unknown>): Promise<void> => {
   cfg = { ...cfg, ...(patch as Partial<CfgState>) }; syncNetCfg(); saveSwr();
-  if ("lang" in patch) { ls("chrome_stream_lang", patch.lang === "auto" ? "" : String(patch.lang)); const nx = pickLg(); if (nx !== curLg) { curLg = nx; applyLangUi(); } }
+  if ("lang" in patch) { ls(LS_LG, patch.lang === "auto" ? "" : String(patch.lang)); const nx = pickLg(); if (nx !== curLg) { curLg = nx; applyLangUi(); } }
   if ("defaultQuality" in patch && typeof patch.defaultQuality === "string" && QK.includes(patch.defaultQuality)) setQ(patch.defaultQuality, 1);
   if (!canCall()) return;
   setSS(T.sv); cTm(saveT); saveT = 1;
@@ -433,7 +434,7 @@ const mount = (): void => {
       }
       if (!rev && d?.connected === true && (d?.paused || d?.standby) && d?.ok !== false && !d?.unconfirmed) {
         pollSeq++; isDisc = 0; isSb = true; S.pa = true; S.st = false; S.id = false;
-        const pe = +(d.pauseEpoch ?? NaN); if (fin(pe) && pe > S.pe) S.pe = pe;
+        bumpPe(d);
         setPf(d); setErr(); sView(); saveSwr(); schedOffP(); toast(T.tsb); return;
       }
       setPErr(d, "ed", 1);
@@ -447,7 +448,7 @@ const mount = (): void => {
       const d = await sendIn([{ action: "resume" }]);
       if (d?.connected === false && !isRec(d)) { isCn = 0; isSb = false; goOff(eCode(d, "e_conn_lost"), d.error, d.portFile); return; }
       if (!d || d.ok === false) { isCn = 0; setPErr(d, "ep", 1); uOff(); schedOffP(); return; }
-      const pe = +(d.pauseEpoch ?? NaN); if (fin(pe) && pe >= S.pe) S.pe = pe;
+      bumpPe(d);
       pollSeq++; isCn = 0; isSb = false; S.pa = typeof d.paused === "boolean" ? d.paused : false; S.st = !S.pa; S.ep++; S.id = false; act = nowMs(); setErr();
       sView(); uSt(); saveSwr(); toast(T.trs); if (!S.pa) { askUrg(1); liveSched(); } else schedOffP();
     } catch (e) { isCn = 0; setBErr(e, 1); uOff(); schedOffP(); }
@@ -459,7 +460,7 @@ const mount = (): void => {
       const d = await sendIn([{ action: want ? "pause" : "resume" }]);
       if (d?.connected === false && !isRec(d)) return goOff(eCode(d, "e_conn_lost"), d.error, d.portFile);
       if (!d || d.ok === false) { setPErr(d, "ep", 1); isPa = 0; syncPauseUi(); askUrg(1); return; }
-      const pe = +(d.pauseEpoch ?? NaN); if (fin(pe) && pe >= S.pe) S.pe = pe;
+      bumpPe(d);
       pollSeq++; S.pa = typeof d.paused === "boolean" ? d.paused : want; S.st = !S.pa; S.ep++; S.id = false; act = nowMs(); setErr(); saveSwr(); toast(S.pa ? T.tpa : T.trs);
     } catch (e) { setBErr(e, 1); }
     isPa = 0; syncPauseUi(); S.pa ? clrTm(1) : askUrg(1);

@@ -34,6 +34,7 @@ export interface PanelGuardOptions {
   warnBytes?: number;
   bootPlaceholder?: string | null;
   skipJsParse?: boolean;
+  allowEmptyAppRoot?: boolean;
 }
 
 export interface PanelGuardResult {
@@ -73,6 +74,52 @@ function redactUrlForLog(rawUrl: string): string {
   }
 }
 
+function extractAppRootSubtreeBeforeScript(htmlNoComments: string): string | null {
+  const bodyMatch = htmlNoComments.match(/<body\b[^>]*>([\s\S]*?)(?:<script\b|<\/body>)/i);
+  if (!bodyMatch) return null;
+  const preScript = bodyMatch[1];
+  const appOpenMatch = /<div\b[^>]*(?:^|\s)id\s*=\s*(?:["']app["']|app(?=[\s/>]))[^>]*>/i.exec(
+    preScript
+  );
+  if (!appOpenMatch || appOpenMatch[0].endsWith("/>")) return null;
+
+  const rest = preScript.slice(appOpenMatch.index);
+  const tagRe = /<div\b[^>]*>|<\s*\/\s*div\s*>/gi;
+  let depth = 0;
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(rest)) !== null) {
+    const tok = m[0];
+    if (tok.startsWith("</") || /^<\s*\//.test(tok)) {
+      depth -= 1;
+      if (depth === 0) {
+        return rest.slice(0, m.index + tok.length);
+      }
+    } else if (!tok.endsWith("/>")) {
+      depth += 1;
+    }
+  }
+  return depth > 0 ? rest : null;
+}
+
+function hasBootFrameInAppRoot(htmlNoComments: string): boolean {
+  const appSubtree = extractAppRootSubtreeBeforeScript(htmlNoComments);
+  if (!appSubtree) return false;
+  const openTagMatch = appSubtree.match(/^<div\b[^>]*>/i);
+  const inner = openTagMatch
+    ? appSubtree.slice(openTagMatch[0].length).replace(/<\s*\/\s*div\s*>\s*$/i, "")
+    : "";
+  if (inner.trim().length === 0) return false;
+  for (const tagMatch of appSubtree.matchAll(/<[a-z0-9-]+\b[^>]*>/gi)) {
+    const classMatch = tagMatch[0].match(
+      /(?:^|\s)class\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i
+    );
+    if (!classMatch) continue;
+    const rawClasses = classMatch[1] ?? classMatch[2] ?? classMatch[3] ?? "";
+    if (rawClasses.split(/\s+/).includes("boot-frame")) return true;
+  }
+  return false;
+}
+
 /**
  * Evaluates all Lucid Indigo panel invariants against a compiled self-contained HTML string.
  * Returns `{ ok, bytes, warnings, errors }`.
@@ -86,6 +133,7 @@ export function checkPanelInvariants(
   const warnBytes = options.warnBytes ?? WARN_BYTES;
   const bootPlaceholder = options.bootPlaceholder ?? null;
   const skipJsParse = options.skipJsParse === true;
+  const allowEmptyAppRoot = options.allowEmptyAppRoot === true;
 
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -176,6 +224,28 @@ export function checkPanelInvariants(
   // Extract all <style> blocks and strip CSS comments once for keyframes & token checks
   const styleBlocks = [...htmlNoComments.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]);
   const combinedCss = styleBlocks.join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // Reject host --color-background-primary on html/body/:root canvas (prevents #FFFFFF flash during webview hydration)
+  const hostBgOnCanvas =
+    /\bbackground(?:-color)?\s*:\s*[^"';>]*var\(\s*--color-background-primary\b/i.test(htmlTag) ||
+    /\bbackground(?:-color)?\s*:\s*[^"';>]*var\(\s*--color-background-primary\b/i.test(bodyTag) ||
+    [...combinedCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].some(
+      ([, sel, decls]) =>
+        /(?:\b(?:html|body)\b|:root\b)/i.test(sel) &&
+        /\bbackground(?:-color)?\s*:\s*[^;{}]*var\(\s*--color-background-primary\b/i.test(decls)
+    );
+  if (hostBgOnCanvas) {
+    errors.push(
+      "forbidden --color-background-primary on html/body background — use var(--bg) so host hydration cannot flash #FFFFFF"
+    );
+  }
+
+  // Require Frame-0 painted .boot-frame shell inside <div id="app"> before <script> unless allowEmptyAppRoot === true
+  if (!allowEmptyAppRoot && !hasBootFrameInAppRoot(htmlNoComments)) {
+    errors.push(
+      'missing Frame-0 .boot-frame shell inside <div id="app"> before <script> — render <div class="boot-frame">...</div> inside #app (or pass allowEmptyAppRoot: true)'
+    );
+  }
 
   // Zero opacity:0 / 0% / 0 !important inside @keyframes / @-webkit-keyframes
   const keyframes =
@@ -460,7 +530,7 @@ export function assertEnNoCjk(enMap: I18nMap, options: EnNoCjkOptions = {}): I18
   return report;
 }
 
-// CLI entrypoint: `node panel/guard.ts <panel.html> [--max-bytes 65536]`
+// CLI entrypoint: `node panel/guard.ts <panel.html> [--max-bytes 65536] [--allow-empty-app-root]`
 const isMain =
   typeof process !== "undefined" &&
   Boolean(process.argv[1]) &&
@@ -470,6 +540,7 @@ if (isMain) {
   const args = process.argv.slice(2);
   let filePath: string | null = null;
   let maxBytes = DEFAULT_MAX_BYTES;
+  let allowEmptyAppRoot = false;
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === "--max-bytes") {
       if (!args[i + 1]) {
@@ -483,6 +554,8 @@ if (isMain) {
       }
       maxBytes = parsed;
       i += 1;
+    } else if (args[i] === "--allow-empty-app-root") {
+      allowEmptyAppRoot = true;
     } else if (args[i].startsWith("-")) {
       console.error(`Error: unknown option: ${args[i]}`);
       process.exit(2);
@@ -495,11 +568,11 @@ if (isMain) {
     }
   }
   if (!filePath) {
-    console.error("Usage: node panel/guard.ts <panel.html> [--max-bytes 65536]");
+    console.error("Usage: node panel/guard.ts <panel.html> [--max-bytes 65536] [--allow-empty-app-root]");
     process.exit(2);
   }
   const html = fs.readFileSync(filePath, "utf8");
-  const report = checkPanelInvariants(html, { maxBytes });
+  const report = checkPanelInvariants(html, { maxBytes, allowEmptyAppRoot });
   for (const w of report.warnings) console.warn(`[warn] ${w}`);
   if (!report.ok) {
     console.error(`FAIL ${filePath} (${report.bytes} B):`);
