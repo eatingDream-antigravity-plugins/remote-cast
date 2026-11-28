@@ -26,6 +26,8 @@ const MAX_CONCURRENT_REQUESTS: usize = 16;
 const MAX_MCP_REQUEST_BYTES: usize = 1024 * 1024;
 const SWR_FRESH_TTL: Duration = Duration::from_millis(500);
 const SWR_MAX_STALE_TTL: Duration = Duration::from_millis(2500);
+#[cfg(not(test))]
+const KEEP_FRESH_INTERVAL: Duration = Duration::from_secs(15);
 const HTML_STAT_TTL: Duration = Duration::from_millis(500);
 const BOOT_MARKER: &str = "/*__CHROME_STREAM_BOOT__*/";
 
@@ -74,14 +76,14 @@ impl HtmlCache {
         Ok(())
     }
 
-    fn render(&mut self, path: &Path, boot_data: Option<&BootSnapshot>) -> Result<String, String> {
+    fn render_metadata(&mut self, path: &Path, metadata: Option<&Value>) -> Result<String, String> {
         self.ensure_loaded(path)?;
         if !self.has_marker {
             return Ok(self.prefix.clone());
         }
-        match boot_data {
-            Some(bd) => {
-                let serialized = serialize_boot_data(&bd.as_serializable());
+        match metadata {
+            Some(meta) => {
+                let serialized = serialize_boot_data(meta);
                 let mut out = String::with_capacity(
                     self.prefix.len() + self.suffix.len() + serialized.len() + 26,
                 );
@@ -131,15 +133,8 @@ fn serialize_boot_data(val: &impl Serialize) -> String {
 #[derive(Clone)]
 struct BootSnapshot {
     metadata: Value,
+    #[cfg_attr(not(test), allow(dead_code))]
     image: Arc<str>,
-}
-
-#[derive(Serialize)]
-struct BootSnapshotRef<'a> {
-    #[serde(flatten)]
-    metadata: &'a Value,
-    #[serde(rename = "imageDataUrl")]
-    image: &'a str,
 }
 
 impl BootSnapshot {
@@ -163,13 +158,6 @@ impl BootSnapshot {
             }
         }
         Some(Self { metadata, image })
-    }
-
-    fn as_serializable(&self) -> BootSnapshotRef<'_> {
-        BootSnapshotRef {
-            metadata: &self.metadata,
-            image: &self.image,
-        }
     }
 }
 
@@ -234,6 +222,10 @@ pub struct SwrBootCache {
     relay: Arc<dyn RelayBackend>,
     state: Mutex<SwrState>,
     ready_cv: Condvar,
+    #[cfg(not(test))]
+    stop_mu: Mutex<bool>,
+    #[cfg(not(test))]
+    stop_cv: Condvar,
 }
 
 impl SwrBootCache {
@@ -248,6 +240,10 @@ impl SwrBootCache {
                 revokes_in_flight: 0,
             }),
             ready_cv: Condvar::new(),
+            #[cfg(not(test))]
+            stop_mu: Mutex::new(false),
+            #[cfg(not(test))]
+            stop_cv: Condvar::new(),
         })
     }
 
@@ -319,9 +315,13 @@ impl SwrBootCache {
         }
     }
 
-    /// Returns cached snapshot immediately (<0.1 ms) if within `SWR_MAX_STALE_TTL` (triggering async
-    /// revalidation past `SWR_FRESH_TTL`). Revalidates synchronously when cold or expired (>2.5s).
-    fn get_swr(self: &Arc<Self>, cold_wait: Duration) -> Option<BootSnapshot> {
+    /// Returns cached snapshot immediately (<0.1 ms) if within `max_stale_ttl` (triggering async
+    /// revalidation past `SWR_FRESH_TTL`). Revalidates synchronously when cold or expired.
+    fn get_swr_with_ttl(
+        self: &Arc<Self>,
+        cold_wait: Duration,
+        max_stale_ttl: Duration,
+    ) -> Option<BootSnapshot> {
         let (
             cached,
             needs_bg_refresh,
@@ -338,7 +338,7 @@ impl SwrBootCache {
             if let Some(snap) = st
                 .snapshot
                 .clone()
-                .filter(|_| age.is_some_and(|a| a <= SWR_MAX_STALE_TTL))
+                .filter(|_| age.is_some_and(|a| a <= max_stale_ttl))
             {
                 let stale = age.is_none_or(|a| a >= SWR_FRESH_TTL);
                 let bg = stale && !st.refreshing;
@@ -385,32 +385,72 @@ impl SwrBootCache {
                 st = guard;
             }
             if st.revokes_in_flight != 0
-                || st
-                    .updated_at
-                    .is_none_or(|t| t.elapsed() > SWR_MAX_STALE_TTL)
+                || st.updated_at.is_none_or(|t| t.elapsed() > max_stale_ttl)
             {
                 return None;
             }
             return st.snapshot.clone();
         }
 
-        // Cold or expired (>2.5s) path with no in-flight refresh: fetch synchronously once (bounded).
+        // Cold or expired path with no in-flight refresh: fetch synchronously once (bounded).
         let fetched = self.fetch_from_relay(cold_wait.max(Duration::from_millis(200)));
         self.finish_refresh(generation, previous_update, fetched, clear_on_failure);
         let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if st.revokes_in_flight != 0
-            || st
-                .updated_at
-                .is_none_or(|t| t.elapsed() > SWR_MAX_STALE_TTL)
-        {
+        if st.revokes_in_flight != 0 || st.updated_at.is_none_or(|t| t.elapsed() > max_stale_ttl) {
             return None;
         }
         st.snapshot.clone()
     }
 
+    fn get_swr(self: &Arc<Self>, cold_wait: Duration) -> Option<BootSnapshot> {
+        self.get_swr_with_ttl(cold_wait, SWR_MAX_STALE_TTL)
+    }
+
     pub fn stage_status(self: &Arc<Self>, cold_wait: Duration) -> Option<Value> {
-        self.get_swr(cold_wait)
+        self.get_swr_with_ttl(cold_wait, SWR_FRESH_TTL)
             .map(|snapshot| stage_status_from_snapshot(&snapshot.metadata))
+    }
+
+    #[cfg(not(test))]
+    fn refresh_keep_fresh(&self) {
+        let (generation, previous_update) = {
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if st.refreshing
+                || st.revokes_in_flight != 0
+                || st
+                    .updated_at
+                    .is_some_and(|t| t.elapsed() < KEEP_FRESH_INTERVAL)
+            {
+                return;
+            }
+            st.refreshing = true;
+            (st.generation, st.updated_at)
+        };
+        let fetched = self.fetch_from_relay(Duration::from_millis(1500));
+        self.finish_refresh(generation, previous_update, fetched, false);
+    }
+
+    #[cfg(not(test))]
+    fn wait_stop(&self, timeout: Duration) -> bool {
+        let Ok(guard) = self.stop_mu.lock() else {
+            return true;
+        };
+        if *guard {
+            return true;
+        }
+        let (guard, _) = self
+            .stop_cv
+            .wait_timeout_while(guard, timeout, |stopped| !*stopped)
+            .unwrap_or_else(|e| e.into_inner());
+        *guard
+    }
+
+    #[cfg(not(test))]
+    fn stop_keep_fresh(&self) {
+        if let Ok(mut stopped) = self.stop_mu.lock() {
+            *stopped = true;
+            self.stop_cv.notify_all();
+        }
     }
 
     pub fn generation(&self) -> u64 {
@@ -795,31 +835,36 @@ impl McpServer {
             return Err((-32602, format!("Unknown resource URI: {uri}")));
         }
 
-        let mut boot_data = self
+        let mut boot_meta = self
             .apps_capable()
             .then(|| self.swr_cache.get_swr(Duration::from_millis(1200)))
-            .flatten();
-        if let Some(bd) = boot_data.as_mut() {
-            if let Some(store) = self.settings.as_ref() {
-                attach_settings_snapshot(&mut bd.metadata, Some(store));
-            }
-            if bd.metadata.get("bootTs").and_then(Value::as_u64).is_none() {
-                if let Some(obj) = bd.metadata.as_object_mut() {
+            .flatten()
+            .map(|bd| bd.metadata);
+        if let Some(meta) = boot_meta.as_mut() {
+            // Strip any frame payload from boot JSON so `resources/read` HTML stays < 65 KiB
+            // and never blocks Frame-0 paint on a 100 KB base64 JPEG.
+            clear_boot_frame(meta);
+            if let Some(obj) = meta.as_object_mut() {
+                obj.remove("imageDataUrl");
+                if obj.get("bootTs").and_then(Value::as_u64).is_none() {
                     obj.insert("bootTs".to_string(), json!(now_epoch_ms()));
                 }
+            }
+            if let Some(store) = self.settings.as_ref() {
+                attach_settings_snapshot(meta, Some(store));
             }
         } else if self.apps_capable() {
             if let Some(store) = self.settings.as_ref() {
                 let mut meta = json!({ "connected": false });
                 attach_settings_snapshot(&mut meta, Some(store));
-                boot_data = BootSnapshot::from_relay(meta);
+                boot_meta = BootSnapshot::from_relay(meta).map(|bd| bd.metadata);
             }
         }
         let html = self
             .html_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .render(&self.panel_html_path, boot_data.as_ref())
+            .render_metadata(&self.panel_html_path, boot_meta.as_ref())
             .map_err(|e| (-32603, e))?;
 
         Ok(json!({
@@ -850,12 +895,35 @@ pub fn run_stdio_server(cfg: &Config) -> Result<(), String> {
     // and SWR boot snapshot off the critical stdio startup path.
     server.prewarm_startup();
 
+    #[cfg(not(test))]
+    let keep_fresh = {
+        let swr = Arc::clone(&server.swr_cache);
+        thread::Builder::new()
+            .name("chrome-stream-keepfresh".to_string())
+            .spawn(move || {
+                while !swr.wait_stop(KEEP_FRESH_INTERVAL) {
+                    swr.refresh_keep_fresh();
+                }
+            })
+            .ok()
+    };
+
     let stdin = io::stdin();
-    run_stdio_loop(
-        server,
+    let res = run_stdio_loop(
+        Arc::clone(&server),
         BufReader::new(stdin.lock()),
         BufWriter::new(io::stdout()),
-    )
+    );
+
+    #[cfg(not(test))]
+    {
+        server.swr_cache.stop_keep_fresh();
+        if let Some(handle) = keep_fresh {
+            let _ = handle.join();
+        }
+    }
+
+    res
 }
 
 pub fn run_stdio_loop<R: BufRead, W: Write + Send + 'static>(
@@ -1838,6 +1906,91 @@ mod tests {
         assert!(fb_html.contains("\"connected\":false"));
         assert!(fb_html.contains("\"bootTs\":"));
         assert!(fb_html.contains("\"lang\":\"zh-CN\""));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resources_read_strips_image_data_url_and_stage_refreshes_stale_swr() {
+        struct CountingStageRelay {
+            calls: AtomicUsize,
+            port: std::sync::atomic::AtomicU16,
+        }
+        impl RelayBackend for CountingStageRelay {
+            fn call(
+                &self,
+                _method: &str,
+                _args: Value,
+                _timeout: Duration,
+            ) -> Result<Value, String> {
+                let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+                let port = self.port.load(Ordering::SeqCst);
+                let huge_img = format!("data:image/webp;base64,{}", "A".repeat(100_000));
+                Ok(json!({
+                    "connected": true,
+                    "connectionMode": "remote",
+                    "remotePort": port,
+                    "activeTargetId": "t1",
+                    "tabs": [{ "targetId": "t1", "title": format!("Tab {n}"), "url": "https://example.test" }],
+                    "page": { "title": format!("Tab {n}"), "url": "https://example.test" },
+                    "changed": true,
+                    "seq": n,
+                    "frameHash": format!("fh-{n}"),
+                    "imageBytes": 75_000,
+                    "imageDataUrl": huge_img,
+                }))
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "chrome-stream-strip-img-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::create_dir_all(&dir);
+        let html_path = dir.join("panel.html");
+        fs::write(&html_path, "<script>/*__CHROME_STREAM_BOOT__*/</script>").unwrap();
+
+        let relay = Arc::new(CountingStageRelay {
+            calls: AtomicUsize::new(0),
+            port: std::sync::atomic::AtomicU16::new(9222),
+        });
+        let srv = McpServer::new(Arc::clone(&relay) as Arc<dyn RelayBackend>, html_path);
+        initialize(&srv, apps_capabilities());
+
+        // Populate SWR with a 100 KB imageDataUrl, then read_resource -> must strip imageDataUrl & reset frame sync fields
+        let r1 = srv
+            .handle_message(&json!({
+                "jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": { "uri": STAGE_URI }
+            }))
+            .unwrap();
+        let html = r1["result"]["contents"][0]["text"].as_str().unwrap();
+        assert!(
+            html.len() < 4096,
+            "boot HTML must not carry 100KB imageDataUrl: {}",
+            html.len()
+        );
+        assert!(!html.contains("imageDataUrl"));
+        assert!(html.contains("\"changed\":false"));
+        assert!(html.contains("\"seq\":0"));
+        assert!(html.contains("\"frameHash\":\"\""));
+        assert_eq!(
+            srv.swr_cache.get_swr(Duration::ZERO).unwrap().image.len(),
+            100_023
+        );
+
+        // Backdate SWR past SWR_FRESH_TTL (500ms) and update relay port -> chrome_stream_stage must refresh SWR immediately
+        relay.port.store(9333, Ordering::SeqCst);
+        {
+            let mut st = srv.swr_cache.state.lock().unwrap();
+            st.updated_at = Some(Instant::now() - Duration::from_millis(600));
+        }
+        let stage = srv
+            .handle_message(&json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "chrome_stream_stage", "arguments": {} }
+            }))
+            .unwrap();
+        assert_eq!(stage["result"]["structuredContent"]["remotePort"], 9333);
+        assert_eq!(relay.calls.load(Ordering::SeqCst), 2);
 
         let _ = fs::remove_dir_all(&dir);
     }

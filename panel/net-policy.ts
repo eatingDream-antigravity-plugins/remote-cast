@@ -588,7 +588,11 @@ export const setupRevealObservers = (o: RevealObserversOptions = {}): (() => voi
       )
     );
   }
-  add(dc, "visibilitychange", () => (dc?.visibilityState === "hidden" ? o.onHide?.() : dc?.visibilityState === "visible" && trig()));
+  add(dc, "visibilitychange", () => {
+    const isHidden = dc?.visibilityState === "hidden" || (dc as { hidden?: boolean } | null)?.hidden === true;
+    if (isHidden) o.onHide?.();
+    else if (dc?.visibilityState === "visible" || (dc as { hidden?: boolean } | null)?.hidden === false) trig();
+  });
   add(wn, "focus", trig);
   add(wn, "pageshow", trig);
   add(rt, "pointerenter", () => nw() - getLF() > sm && trig(), { passive: true });

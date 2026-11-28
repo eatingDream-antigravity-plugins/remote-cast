@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "kit": "agy-mcp-kit",
-  "kitVersion": "0.3.0",
-  "kitCommit": "323b1c713f5e853e56d31e07bc7bc17281d6cb92",
+  "kitVersion": "0.4.1",
+  "kitCommit": "0f5ddf66a7cc66fb2e7aaba598c4d42a0feb2549",
   "files": {
     "THIRD_PARTY_LICENSES/agy-mcp-kit-LICENSE": {
       "source": "LICENSE",
@@ -10,15 +10,15 @@
     },
     "panel/kit/bridge.ts": {
       "source": "panel/bridge.ts",
-      "sha256": "55c2f844c95b5caa0f800899e74265f58655b35e45e4ad5894f5f8168f4021ab"
+      "sha256": "e0a51a13bd0fd5b04cdd4e8484104e6fc5901edd9b5d97b518a5fdadfe15ac88"
     },
     "panel/kit/guard.ts": {
       "source": "panel/guard.ts",
-      "sha256": "43f4ee5c1595a0486d1bbfe2b85df4ebc06e64e4bb96bd46f879b2fad29904ed"
+      "sha256": "d11704491380e335d7cb6cf34ed8878fd2036da3d8d3e1fec7c6caa5cd29b612"
     },
     "panel/kit/tokens.css": {
       "source": "panel/tokens.css",
-      "sha256": "e9b1091872c8a1b1f072470edfac643617d719850ea2d89dfbfdbd612d620823"
+      "sha256": "586a25c1f515a36a65785967b11fd70d4ebefd994f1693f293831e82db19b1ac"
     }
   }
 }

@@ -78,12 +78,16 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  background: var(--color-background-primary, var(--bg));
-  color: var(--color-text-primary, var(--t1));
+  background: var(--bg);
+  color: var(--t1);
   font: 13px/1.45 var(--sn);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
+
+.boot-frame{min-height:100vh;background:var(--bg);display:flex;flex-direction:column}
+.boot-bar{height:38px;background:var(--s1);border-bottom:1px solid var(--ln);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--t1);font:600 13px/1 var(--sn)}
+.boot-dot{width:7px;height:7px;border-radius:99px;background:var(--ac)}
 
 [hidden] {
   display: none !important;

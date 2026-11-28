@@ -143,6 +143,7 @@ pub fn classify_error_code(raw: &str) -> &'static str {
         || low.contains("chrome://inspect/#remote-debugging")
         || low.contains("未检测到")
         || low.contains("还没开启远程调试")
+        || low.contains("尚未开启远程调试")
     {
         return "not_detected";
     }
@@ -213,18 +214,18 @@ pub fn error_message(code: &str, lang: Lang) -> &'static str {
             "Chrome's remote debugging is off. Open chrome://inspect/#remote-debugging and turn it on, or open a separate Chrome."
         }
         ("not_detected", Lang::ZhCn) => {
-            "Chrome 还没开启远程调试。请打开 chrome://inspect/#remote-debugging 开启，或改用独立 Chrome。"
+            "Chrome 尚未开启远程调试。请打开 chrome://inspect/#remote-debugging 开启，或改用独立 Chrome。"
         }
         ("port_busy", Lang::En) => {
             "Couldn't find a free port for separate Chrome. Try again, or connect your own Chrome."
         }
         ("port_busy", Lang::ZhCn) => {
-            "独立 Chrome 找不到可用端口。请重试，或改为连接日常 Chrome。"
+            "独立 Chrome 暂无可用端口。请重试，或改为连接本机 Chrome。"
         }
         ("launch_failed", Lang::En) => "Couldn't open separate Chrome. Try again.",
-        ("launch_failed", Lang::ZhCn) => "独立 Chrome 没能打开，请重试。",
+        ("launch_failed", Lang::ZhCn) => "独立 Chrome 启动失败，请重试。",
         ("chrome_missing", Lang::En) => "Couldn't find Chrome on this Mac.",
-        ("chrome_missing", Lang::ZhCn) => "这台 Mac 上没有找到 Chrome。",
+        ("chrome_missing", Lang::ZhCn) => "未在这台 Mac 上找到 Chrome。",
         ("allow_timeout", Lang::En) => {
             "Chrome didn't answer. If it asked for permission, click Allow and try again."
         }
@@ -236,25 +237,25 @@ pub fn error_message(code: &str, lang: Lang) -> &'static str {
         }
         ("allow_denied", Lang::ZhCn) => "Chrome 拒绝了连接。弹出授权窗口时请点「允许」。",
         ("conn_lost", Lang::En) => "Lost connection to Chrome.",
-        ("conn_lost", Lang::ZhCn) => "与 Chrome 的连接断开了。",
+        ("conn_lost", Lang::ZhCn) => "与 Chrome 的连接已断开。",
         ("timeout", Lang::En) => "Chrome is taking too long. Try again.",
-        ("timeout", Lang::ZhCn) => "Chrome 响应太慢，请重试。",
+        ("timeout", Lang::ZhCn) => "Chrome 响应超时，请重试。",
         ("tab_changed", Lang::En) => "The tab changed. Try again.",
-        ("tab_changed", Lang::ZhCn) => "标签页变了，请重试。",
+        ("tab_changed", Lang::ZhCn) => "目标标签页已变更，请重试。",
         ("tab_close_failed", Lang::En) => "Couldn't close the tab.",
-        ("tab_close_failed", Lang::ZhCn) => "标签页没能关闭。",
+        ("tab_close_failed", Lang::ZhCn) => "关闭标签页失败。",
         ("relay_busy", Lang::En) => "Remote Cast is busy. Try again in a moment.",
         ("relay_busy", Lang::ZhCn) => "Remote Cast 正忙，请稍后再试。",
         ("relay_down", Lang::En) => {
             "Remote Cast's background service isn't running. Reopen the panel."
         }
-        ("relay_down", Lang::ZhCn) => "Remote Cast 后台服务没有运行，请重新打开面板。",
+        ("relay_down", Lang::ZhCn) => "Remote Cast 后台服务未运行，请重新打开面板。",
         ("unconfirmed", Lang::En) => {
             "No confirmation from Chrome. Check the status and try again."
         }
         ("unconfirmed", Lang::ZhCn) => "没有收到 Chrome 的确认，请查看状态后重试。",
         (_, Lang::En) => "Lost connection to Chrome.",
-        (_, Lang::ZhCn) => "与 Chrome 的连接断开了。",
+        (_, Lang::ZhCn) => "与 Chrome 的连接已断开。",
     }
 }
 
