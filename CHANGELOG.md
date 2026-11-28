@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 The project uses [Semantic Versioning](https://semver.org/) and updates this file automatically via [Release Please](https://github.com/googleapis/release-please) from Conventional Commits.
 
+## [0.7.3](https://github.com/eatingDream-antigravity-plugins/remote-cast/compare/v0.7.2...v0.7.3) (2026-11-28)
+
+
+### Bug Fixes
+
+* eliminate Frame-0 white flash, keep idle SWR fresh, and polish EN/ZH copy ([#47](https://github.com/eatingDream-antigravity-plugins/remote-cast/issues/47)) ([c8dc91d](https://github.com/eatingDream-antigravity-plugins/remote-cast/commit/c8dc91dac8695c10bc08ecd88788311c48d73461))
+
 ## [0.7.2](https://github.com/eatingDream-antigravity-plugins/remote-cast/compare/v0.7.1...v0.7.2) (2026-11-28)
 
 
