@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 The project uses [Semantic Versioning](https://semver.org/) and updates this file automatically via [Release Please](https://github.com/googleapis/release-please) from Conventional Commits.
 
+## [0.7.4](https://github.com/eatingDream-antigravity-plugins/remote-cast/compare/v0.7.3...v0.7.4) (2026-11-28)
+
+
+### Bug Fixes
+
+* **panel:** adopt Panel Kit v0.4.2 theme and high-density compact layout ([446e5b6](https://github.com/eatingDream-antigravity-plugins/remote-cast/commit/446e5b6828edb785ea4eb62608b7f357f958724b))
+
 ## [0.7.3](https://github.com/eatingDream-antigravity-plugins/remote-cast/compare/v0.7.2...v0.7.3) (2026-11-28)
 
 

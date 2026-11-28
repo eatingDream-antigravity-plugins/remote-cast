@@ -1,7 +1,7 @@
 {
   "name": "chrome-stream-mcp",
   "displayName": "Remote Cast",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Low-bandwidth native Rust Chrome DevTools screencast relay, interactive tab controller, and MCP App viewer.",
   "author": {
     "name": "eatingDream",
