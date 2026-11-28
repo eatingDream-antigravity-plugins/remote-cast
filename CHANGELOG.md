@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 The project uses [Semantic Versioning](https://semver.org/) and updates this file automatically via [Release Please](https://github.com/googleapis/release-please) from Conventional Commits.
 
+## [0.7.2](https://github.com/eatingDream-antigravity-plugins/remote-cast/compare/v0.7.1...v0.7.2) (2026-11-28)
+
+
+### Bug Fixes
+
+* **panel:** enforce single-flight priority RPC serializer and localize busy errors ([#45](https://github.com/eatingDream-antigravity-plugins/remote-cast/issues/45)) ([defe210](https://github.com/eatingDream-antigravity-plugins/remote-cast/commit/defe2109ed7b45cb42fa6eb1ecd82e19c4845bf6))
+
 ## [0.7.1](https://github.com/eatingDream-antigravity-plugins/remote-cast/compare/v0.7.0...v0.7.1) (2026-11-28)
 
 
