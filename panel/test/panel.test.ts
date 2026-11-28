@@ -1003,5 +1003,39 @@ describe("Remote Cast panel kit invariants & Wave 2 regressions", () => {
     } finally {
       zh.cleanup();
     }
+
+    // 3. structuredContent.errorCode === "relay_busy" also triggers single 160ms silent retry
+    const rb = bootPanel({ connected: false }, { navLang: "zh-CN", deferConnect: true });
+    try {
+      const origPost = rb.win.parent.postMessage.bind(rb.win.parent);
+      let rbAttempt = 0;
+      rb.win.parent.postMessage = (msg: PostedMessage) => {
+        origPost(msg);
+        if (msg.method === "tools/call" && typeof msg.id === "number") {
+          rbAttempt += 1;
+          rb.msgHandler({
+            source: rb.win.parent,
+            data: {
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: {
+                structuredContent: rbAttempt === 1
+                  ? { connected: false, errorCode: "relay_busy", error: "Relay busy" }
+                  : { connected: false, portFile: { valid: true, port: 9222 } },
+              },
+            },
+          });
+        }
+      };
+      rb.resolveConnect();
+      await new Promise((r) => setTimeout(r, 10));
+      rb.setNow(15_000);
+      rb.winListeners.get("focus")?.forEach((fn) => fn({}));
+      await new Promise((r) => setTimeout(r, 250));
+      assert.equal(rbAttempt, 2, "errorCode=relay_busy must retry once after 160ms");
+      assert.equal(rb.els.get("oe")!.hidden, true);
+    } finally {
+      rb.cleanup();
+    }
   });
 });

@@ -143,7 +143,10 @@ const rpcSc = (() => {
         const q = hi.shift() || ((x) => ((bg = null), x))(bg!);
         try {
           let v: FramePayload | undefined;
-          try { v = await run(q.n, q.a); } catch (e) {
+          try {
+            v = await run(q.n, q.a);
+            if (v?.errorCode === "relay_busy") { await new Promise<void>((r) => sTm(r, 160)); v = await run(q.n, q.a); }
+          } catch (e) {
             if (!isBusyErrorText(eRaw(e))) throw e;
             await new Promise<void>((r) => sTm(r, 160));
             v = await run(q.n, q.a);
