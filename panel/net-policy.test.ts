@@ -677,7 +677,7 @@ describe("Remote Cast panel net-policy.ts", () => {
 
   it("boots built panel.html cleanly in sandboxed vm (throwing localStorage + strict WebIDL timers + targetEpoch/staleTarget)", async () => {
     const html = fs.readFileSync(path.join(__dirname, "dist", "panel.html"), "utf8");
-    const match = html.match(/<script>\/\*__CHROME_STREAM_BOOT__\*\/([\s\S]*?)<\/script>/);
+    const match = html.match(/<script(?:\s+type="module")?>\/\*__CHROME_STREAM_BOOT__\*\/([\s\S]*?)<\/script>/);
     assert.ok(match, "built panel.html must contain single merged inline bundle script");
     const js = match[1];
 

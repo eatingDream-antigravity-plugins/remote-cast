@@ -43,10 +43,22 @@ pub struct Settings {
     pub user_data_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wheel_coalesce_ms: Option<u32>,
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    #[serde(default = "default_last_host_theme", alias = "last_host_theme")]
+    pub last_host_theme: String,
 }
 
 fn default_auto() -> String {
     "auto".to_string()
+}
+
+fn default_theme() -> String {
+    "system".to_string()
+}
+
+fn default_last_host_theme() -> String {
+    "dark".to_string()
 }
 
 fn default_idle_pause_sec() -> u64 {
@@ -67,6 +79,8 @@ impl Default for Settings {
             port_file: None,
             user_data_dir: None,
             wheel_coalesce_ms: None,
+            theme: default_theme(),
+            last_host_theme: default_last_host_theme(),
         }
     }
 }
@@ -163,6 +177,17 @@ impl Settings {
                 return Err("wheelCoalesceMs must be 20..=500".to_string());
             }
         }
+        self.theme = match self.theme.trim() {
+            "" | "system" => "system".to_string(),
+            "light" => "light".to_string(),
+            "dark" => "dark".to_string(),
+            other => return Err(format!("Unsupported theme: {other}")),
+        };
+        self.last_host_theme = match self.last_host_theme.trim() {
+            "" | "dark" => "dark".to_string(),
+            "light" => "light".to_string(),
+            other => return Err(format!("Unsupported lastHostTheme: {other}")),
+        };
         Ok(())
     }
 }
@@ -408,16 +433,25 @@ impl SettingsStore {
             "portFile",
             "userDataDir",
             "wheelCoalesceMs",
+            "theme",
+            "lastHostTheme",
+            "last_host_theme",
         ];
 
         for (k, v) in patch_obj {
             if !ALLOWED_KEYS.contains(&k.as_str()) {
                 return Err(format!("Unknown setting key: {k}"));
             }
-            if v.is_null() {
-                merged.remove(k);
+            let canon_key = if k == "last_host_theme" {
+                merged.remove("last_host_theme");
+                "lastHostTheme".to_string()
             } else {
-                merged.insert(k.clone(), v.clone());
+                k.clone()
+            };
+            if v.is_null() {
+                merged.remove(&canon_key);
+            } else {
+                merged.insert(canon_key, v.clone());
             }
         }
 
@@ -434,6 +468,8 @@ impl SettingsStore {
                 "defaultConnectMode",
                 "bgPollIntervalSec",
                 "idlePauseSec",
+                "theme",
+                "lastHostTheme",
             ] {
                 if let Some(val) = canon_obj.get(k) {
                     merged.insert(k.to_string(), val.clone());

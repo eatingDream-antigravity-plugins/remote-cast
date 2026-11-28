@@ -120,6 +120,46 @@ function hasBootFrameInAppRoot(htmlNoComments: string): boolean {
   return false;
 }
 
+function validateInlineScriptSyntax(jsBody: string, isModule: boolean): string | null {
+  try {
+    // Parse-only top-level script validation without executing the script body.
+    new vm.Script(isModule ? `"use strict";\n${jsBody}` : jsBody);
+    return null;
+  } catch (err) {
+    const primaryMsg = err instanceof Error ? err.message : String(err);
+    if (
+      isModule &&
+      /(?:await is only valid in async functions|Unexpected token ['"]?export\b)/.test(primaryMsg)
+    ) {
+      const withoutExports = jsBody
+        .replace(/\bexport\s*\{[^}]*\}\s*;?/g, ";")
+        .replace(/\bexport\s+default\b/g, "void ")
+        .replace(/\bexport\s+(?=(?:const|let|var|function|async\s+function|class)\b)/g, "");
+      try {
+        new vm.Script(`"use strict";\n(async () => {\n${withoutExports}\n})`);
+        const checkNoTopReturn = withoutExports
+          .replace(/\bfor\s+await\s*\(/g, "for (")
+          .replace(/\bawait\b/g, "void ");
+        new vm.Script(`"use strict";\nclass __M { static {\n${checkNoTopReturn}\n} }`);
+        return null;
+      } catch {
+        return primaryMsg;
+      }
+    }
+    return primaryMsg;
+  }
+}
+
+function extractAttrValue(tag: string, attrName: string): string | null {
+  const re = new RegExp(
+    `(?:^|\\s)${attrName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`,
+    "i"
+  );
+  const m = tag.match(re);
+  if (!m) return null;
+  return m[1] ?? m[2] ?? m[3] ?? "";
+}
+
 /**
  * Evaluates all Lucid Indigo panel invariants against a compiled self-contained HTML string.
  * Returns `{ ok, bytes, warnings, errors }`.
@@ -197,23 +237,66 @@ export function checkPanelInvariants(
     errors.push(`forbidden protocol-relative URL string detected: ${redactUrlForLog(protoRelQuotedHost[1])}`);
   }
 
-  // Dark-first Frame-0 locks (Lucid Indigo #0B0D12)
+  // Byte-0 Frame-0 SSR root locks: canonical Dark (#0B0D12) OR canonical Light (data-theme="light" + #F8FAFD)
   const htmlTag = htmlNoComments.match(/<html\b[^>]*>/i)?.[0] || "";
-  if (
-    !/style=(["'])[\s\S]*?background\s*:\s*#0b0d12[\s\S]*?\1/i.test(htmlTag) ||
-    !/style=(["'])[\s\S]*?color-scheme\s*:\s*dark[\s\S]*?\1/i.test(htmlTag)
-  ) {
-    errors.push('missing dark-first inline lock on <html> (background:#0B0D12;color-scheme:dark)');
-  }
-  if (
-    !/<meta\b[^>]*name=["']color-scheme["'][^>]*content=["']dark["'][^>]*>/i.test(htmlNoComments) &&
-    !/<meta\b[^>]*content=["']dark["'][^>]*name=["']color-scheme["'][^>]*>/i.test(htmlNoComments)
-  ) {
-    errors.push('missing dark-only <meta name="color-scheme" content="dark">');
-  }
   const bodyTag = htmlNoComments.match(/<body\b[^>]*>/i)?.[0] || "";
-  if (!/style=(["'])[\s\S]*?background\s*:\s*#0b0d12[\s\S]*?\1/i.test(bodyTag)) {
-    errors.push('missing dark-first inline lock on <body> (background:#0B0D12)');
+  const htmlDataThemeRaw = extractAttrValue(htmlTag, "data-theme");
+  const htmlDataTheme = htmlDataThemeRaw !== null ? htmlDataThemeRaw.trim().toLowerCase() : null;
+  const htmlStyle = extractAttrValue(htmlTag, "style") ?? "";
+  const bodyStyle = extractAttrValue(bodyTag, "style") ?? "";
+
+  if (htmlDataTheme !== null && htmlDataTheme !== "dark" && htmlDataTheme !== "light") {
+    errors.push(
+      `invalid data-theme="${htmlDataThemeRaw}" on <html>: expected "light" or "dark" (or omit for dark default)`
+    );
+  } else if (htmlDataTheme === "light") {
+    if (
+      !/(?:^|;)\s*background(?:-color)?\s*:\s*#f8fafd(?:\s*!important)?\s*(?:;|$)/i.test(htmlStyle) ||
+      !/(?:^|;)\s*color-scheme\s*:\s*light(?:\s*!important)?\s*(?:;|$)/i.test(htmlStyle)
+    ) {
+      errors.push(
+        'missing light SSR inline lock on <html data-theme="light"> (background:#F8FAFD;color-scheme:light)'
+      );
+    }
+    if (
+      !/<meta\b[^>]*\bname=["']color-scheme["'][^>]*\bcontent=["']light["'][^>]*>/i.test(
+        htmlNoComments
+      ) &&
+      !/<meta\b[^>]*\bcontent=["']light["'][^>]*\bname=["']color-scheme["'][^>]*>/i.test(
+        htmlNoComments
+      )
+    ) {
+      errors.push(
+        'missing light-only <meta name="color-scheme" content="light"> for <html data-theme="light">'
+      );
+    }
+    if (
+      !/(?:^|;)\s*background(?:-color)?\s*:\s*#f8fafd(?:\s*!important)?\s*(?:;|$)/i.test(bodyStyle)
+    ) {
+      errors.push('missing light SSR inline lock on <body> (background:#F8FAFD)');
+    }
+  } else {
+    if (
+      !/(?:^|;)\s*background(?:-color)?\s*:\s*#0b0d12(?:\s*!important)?\s*(?:;|$)/i.test(htmlStyle) ||
+      !/(?:^|;)\s*color-scheme\s*:\s*dark(?:\s*!important)?\s*(?:;|$)/i.test(htmlStyle)
+    ) {
+      errors.push('missing dark-first inline lock on <html> (background:#0B0D12;color-scheme:dark)');
+    }
+    if (
+      !/<meta\b[^>]*\bname=["']color-scheme["'][^>]*\bcontent=["']dark["'][^>]*>/i.test(
+        htmlNoComments
+      ) &&
+      !/<meta\b[^>]*\bcontent=["']dark["'][^>]*\bname=["']color-scheme["'][^>]*>/i.test(
+        htmlNoComments
+      )
+    ) {
+      errors.push('missing dark-only <meta name="color-scheme" content="dark">');
+    }
+    if (
+      !/(?:^|;)\s*background(?:-color)?\s*:\s*#0b0d12(?:\s*!important)?\s*(?:;|$)/i.test(bodyStyle)
+    ) {
+      errors.push('missing dark-first inline lock on <body> (background:#0B0D12)');
+    }
   }
 
   // Zero prefers-color-scheme
@@ -275,7 +358,7 @@ export function checkPanelInvariants(
     errors.push("forbidden --buncss-* declaration detected");
   }
 
-  // Exactly one inline <script>
+  // Exactly one inline <script> or <script type="module">
   const scripts = htmlNoComments.match(/<script\b[^>]*>[\s\S]*?<\/script>/gi) || [];
   if (scripts.length !== 1) {
     errors.push(`expected exactly 1 inline <script> tag, found ${scripts.length}`);
@@ -284,17 +367,26 @@ export function checkPanelInvariants(
     if (/\bsrc\s*=/i.test(openTag)) {
       errors.push("external <script src=...> is forbidden");
     }
+    const rawType = extractAttrValue(openTag, "type");
+    let isModuleScript = false;
+    if (rawType !== null) {
+      const scriptType = rawType.trim().toLowerCase();
+      if (scriptType === "module") {
+        isModuleScript = true;
+      } else {
+        errors.push(
+          `unsupported <script type="${rawType}">: expected <script> or <script type="module">`
+        );
+      }
+    }
     if (bootPlaceholder && !scripts[0].includes(bootPlaceholder)) {
       errors.push(`missing SSR boot placeholder: ${bootPlaceholder}`);
     }
     if (!skipJsParse) {
       const jsBody = scripts[0].replace(/^<script\b[^>]*>|<\/script>$/gi, "");
-      try {
-        // Parse-only top-level script validation without executing the script body.
-        new vm.Script(jsBody);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        errors.push(`inline <script> syntax error: ${message}`);
+      const syntaxErr = validateInlineScriptSyntax(jsBody, isModuleScript);
+      if (syntaxErr) {
+        errors.push(`inline <script> syntax error: ${syntaxErr}`);
       }
     }
   }

@@ -160,6 +160,7 @@ async function bundleAssets(): Promise<{ js: string; css: string; engine: string
       format: "iife",
       platform: "browser",
       target: ["es2022"],
+      mangleProps: /^_[a-z]$/,
       write: false,
     });
     const minCss = await esbuild.transform(rawCss, {

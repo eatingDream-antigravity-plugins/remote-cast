@@ -89,7 +89,7 @@ function bootPanel(
   } = {}
 ) {
   const html = fs.readFileSync(path.join(panelDir, "dist", "panel.html"), "utf8");
-  const match = html.match(/<script>\/\*__CHROME_STREAM_BOOT__\*\/([\s\S]*?)<\/script>/);
+  const match = html.match(/<script(?:\s+type="module")?>\/\*__CHROME_STREAM_BOOT__\*\/([\s\S]*?)<\/script>/);
   assert.ok(match, "built panel.html must contain single inline script");
 
   const els = new Map<string, MockElement>();

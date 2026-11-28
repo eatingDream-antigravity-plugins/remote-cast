@@ -4,9 +4,9 @@
  *
  * Compact 8-digit hex equivalents (keeps single-file panels within 64 KiB):
  *   Dark : --ln rgba(242,244,248,.08)  --l2 rgba(242,244,248,.05)  --ls rgba(242,244,248,.16)
- *          --as rgba(104,149,255,.14)  --ab rgba(104,149,255,.32)
+ *          --bd rgba(7,9,13,.72)       --as rgba(104,149,255,.14)  --ab rgba(104,149,255,.32)
  *   Light: --ln rgba(15,20,32,.09)     --l2 rgba(15,20,32,.06)     --ls rgba(15,20,32,.18)
- *          --as rgba(41,82,204,.10)    --ab rgba(41,82,204,.26)
+ *          --bd rgba(15,20,32,.25)     --as rgba(41,82,204,.10)    --ab rgba(41,82,204,.26)
  */
 
 :root {
@@ -23,6 +23,7 @@
   --l2: #F2F4F80D;
   --ls: #F2F4F829;
   --sh: inset 0 1px 0 #F2F4F80A;
+  --bd: #07090DB8;
   --ac: #6895FF;
   --ah: #82A8FF;
   --as: #6895FF24;
@@ -57,6 +58,7 @@
   --l2: #0F14200F;
   --ls: #0F14202E;
   --sh: inset 0 1px 0 #FFFFFFBF;
+  --bd: #0F142040;
   --ac: #2952CC;
   --ah: #1F42AA;
   --as: #2952CC1A;
